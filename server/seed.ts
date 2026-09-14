@@ -7,10 +7,20 @@ const sql = neon(process.env.DATABASE_URL!);
 const db = drizzle(sql);
 
 async function seed() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Refusing to seed username/password accounts in production");
+  }
+
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const architectPassword = process.env.SEED_ARCHITECT_PASSWORD;
+  if (!adminPassword || !architectPassword) {
+    throw new Error("SEED_ADMIN_PASSWORD and SEED_ARCHITECT_PASSWORD are required");
+  }
+
   console.log("Seeding database with default users...");
 
-  const hashedAdminPassword = await bcrypt.hash("admin123", 10);
-  const hashedArchitectPassword = await bcrypt.hash("architect123", 10);
+  const hashedAdminPassword = await bcrypt.hash(adminPassword, 10);
+  const hashedArchitectPassword = await bcrypt.hash(architectPassword, 10);
 
   await db.insert(users).values([
     {
@@ -31,9 +41,7 @@ async function seed() {
     },
   ]).onConflictDoNothing();
 
-  console.log("✓ Default users created:");
-  console.log("  Admin: username=admin, password=admin123");
-  console.log("  Architect: username=architect, password=architect123");
+  console.log("✓ Seed users created without logging credentials");
 }
 
 seed()

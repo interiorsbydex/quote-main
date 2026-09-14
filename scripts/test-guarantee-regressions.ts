@@ -12,16 +12,18 @@
  */
 import { db } from "../server/db";
 import { sql, eq } from "drizzle-orm";
-import { catalogItems, pricingVersions, projects } from "@shared/schema";
+import { catalogItems, pricingVersions, projects, users } from "@shared/schema";
 import { getActiveVersion, getDraftVersion, publishDraft, listVersions, countVersionItems } from "../server/pricing-versions";
 import { syncCatalogToDraft } from "../server/catalog-sync";
 import { storage } from "../server/storage";
+import { randomBytes } from "node:crypto";
+import bcrypt from "bcrypt";
 
 // The session cookie is Secure, so it is dropped over plain http on localhost.
 // Go through the https dev domain the browser uses.
 const BASE = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "http://127.0.0.1:5000";
 const USER = "pv-ui-test";
-const PASS = "PvUiTest!2026";
+const PASS = `pv-${randomBytes(18).toString("base64url")}`;
 const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID || "";
 
 let pass = 0;
@@ -59,6 +61,11 @@ async function main() {
   console.log("=".repeat(78));
   console.log("GUARANTEE REGRESSION TESTS");
   console.log("=".repeat(78));
+
+  await db
+    .update(users)
+    .set({ password: await bcrypt.hash(PASS, 10), status: "active" })
+    .where(eq(users.username, USER));
 
   const cookie = await login();
   const startTotals: any = (await db.execute(sql`SELECT COALESCE(SUM(amount),0)::bigint AS s FROM line_items`) as any).rows[0];
