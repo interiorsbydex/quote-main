@@ -1,0 +1,58 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "qz_jtgdZOCzETtkCywzEm"
+uri = "file://screenshots/e2e-02-dashboard.png"
+type = "image"
+title = "Staging browser test — dashboard"
+description = "Real Chromium browser screenshot from the staging app after authentication."
+logical_id = "3e6b8239-efd2-4e14-a6db-66399d4275af"
+content_hash = "sha256:f8e270e882241657cabc80abc79cbfbf2ae0bbbef8ad7b4a85edd221a504a6ff"
+size = 54989
+mtime_ms = 1787279975122
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:733a49e4-7c42-4b75-8c2e-3d32a94d25af/3e6b8239-efd2-4e14-a6db-66399d4275af/489be987-3fb8-499e-8969-07ce41023bbe"
+storage_version_token = "1787280093728083"
+content_type = "image/png"
+
+[[outputs]]
+id = "bMRhTO1uxUH2OpunMyCfz"
+uri = "file://screenshots/e2e-03-v2-project.png"
+type = "image"
+title = "Staging browser test — V2 project"
+description = "The new staging project showing the V2 Client Test pricing badge, quotation summary, markup, discount, and grand total."
+logical_id = "c42f3646-95c5-4c99-90d4-1b1112f60fba"
+content_hash = "sha256:fa79429b744aad785088832e4445704cbcdd35590e05028247704b742d375dfc"
+size = 106596
+mtime_ms = 1787279977746
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:733a49e4-7c42-4b75-8c2e-3d32a94d25af/c42f3646-95c5-4c99-90d4-1b1112f60fba/82af87d6-ca83-45fd-b767-94f96bf281d5"
+storage_version_token = "1787280095070552"
+content_type = "image/png"
+
+[[outputs]]
+id = "QIXfwdTzer6W_aBIdVNEM"
+uri = "file://screenshots/e2e-04-pdf-dialog.png"
+type = "image"
+title = "Staging browser test — quotation preview"
+description = "Quotation Preview opened in the staging browser, showing the customization and calculated totals."
+logical_id = "05c088a8-d8bf-4af5-a8f9-74ba4fd00000"
+content_hash = "sha256:b1dd364bf039bd83874f1c56751c2d713571c1819b45fa3cb4647380e5043f87"
+size = 222530
+mtime_ms = 1787279978102
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:733a49e4-7c42-4b75-8c2e-3d32a94d25af/05c088a8-d8bf-4af5-a8f9-74ba4fd00000/dee4b906-b5ea-402b-b552-c10cb2b2dd2b"
+storage_version_token = "1787280096436078"
+content_type = "image/png"
+
+[[outputs]]
+id = "l26chO9M6MicOs_EyagrY"
+uri = "file://screenshots/e2e-05-after-pdf.png"
+type = "image"
+title = "Staging browser test — PDF downloaded"
+description = "Staging browser after clicking Download PDF; the PDF Downloaded confirmation is visible."
+logical_id = "9a41e725-9117-4fd4-a6f3-ad863fa72a48"
+content_hash = "sha256:171f8a67b524aa2525188032a2c759c7140fb64be203435fb4bb9a1add995719"
+size = 114995
+mtime_ms = 1787279982106
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:733a49e4-7c42-4b75-8c2e-3d32a94d25af/9a41e725-9117-4fd4-a6f3-ad863fa72a48/07381ff4-7fc2-4af3-9941-b018b5ff63d8"
+storage_version_token = "1787280097781563"
+content_type = "image/png"

@@ -24,6 +24,7 @@ interface UserData {
   firstName: string | null;
   lastName: string | null;
   role: string;
+  cohort: "PD" | "DTL" | null;
   managerId: string | null;
   status: string; // 'pending' or 'active'
   createdAt: string;
@@ -41,6 +42,7 @@ export default function UserManagement() {
   const [userToEdit, setUserToEdit] = useState<UserData | null>(null);
   const [editRole, setEditRole] = useState("");
   const [editManagerId, setEditManagerId] = useState("none");
+  const [editCohort, setEditCohort] = useState("none");
   
   // Add user dialog state
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -50,6 +52,7 @@ export default function UserManagement() {
   const [newLastName, setNewLastName] = useState("");
   const [newUserRole, setNewUserRole] = useState("user");
   const [newUserManagerId, setNewUserManagerId] = useState("none");
+  const [newUserCohort, setNewUserCohort] = useState("none");
 
   const { data: users = [], isLoading } = useQuery<UserData[]>({
     queryKey: ['/api/admin/users'],
@@ -99,7 +102,7 @@ export default function UserManagement() {
   });
 
   const createUserMutation = useMutation({
-    mutationFn: async (data: { username: string; password: string; firstName: string; lastName: string; role: string; managerId: string | null }) => {
+    mutationFn: async (data: { username: string; password: string; firstName: string; lastName: string; role: string; managerId: string | null; cohort: string | null }) => {
       const res = await apiRequest('POST', '/api/admin/users', data);
       return res.json();
     },
@@ -128,6 +131,7 @@ export default function UserManagement() {
     setUserToEdit(user);
     setEditRole(user.role);
     setEditManagerId(user.managerId || "none");
+    setEditCohort(user.cohort || "none");
     setEditDialogOpen(true);
   };
 
@@ -138,6 +142,7 @@ export default function UserManagement() {
         data: {
           role: editRole,
           managerId: editManagerId === "none" ? null : editManagerId,
+          cohort: editRole === "tl" ? (editCohort === "none" ? null : editCohort as "PD" | "DTL") : null,
         },
       });
     }
@@ -150,6 +155,7 @@ export default function UserManagement() {
     setNewLastName("");
     setNewUserRole("user");
     setNewUserManagerId("none");
+    setNewUserCohort("none");
     setAddDialogOpen(true);
   };
   
@@ -177,6 +183,7 @@ export default function UserManagement() {
       lastName: newLastName.trim(),
       role: newUserRole,
       managerId: newUserManagerId === "none" ? null : newUserManagerId,
+      cohort: newUserRole === "tl" ? (newUserCohort === "none" ? null : newUserCohort) : null,
     });
   };
 
@@ -198,6 +205,10 @@ export default function UserManagement() {
         return <ShieldCheck className="h-4 w-4 text-primary" />;
       case "admin":
         return <Shield className="h-4 w-4 text-blue-500" />;
+      case "tl":
+      case "bl":
+      case "dm":
+        return <Users className="h-4 w-4 text-primary" />;
       default:
         return <User className="h-4 w-4 text-muted-foreground" />;
     }
@@ -209,6 +220,12 @@ export default function UserManagement() {
         return <Badge variant="default">Super Admin</Badge>;
       case "admin":
         return <Badge variant="secondary">Admin</Badge>;
+      case "tl":
+        return <Badge>TL · Team Lead</Badge>;
+      case "bl":
+        return <Badge variant="secondary">BL</Badge>;
+      case "dm":
+        return <Badge variant="outline">DM</Badge>;
       default:
         return <Badge variant="outline">User</Badge>;
     }
@@ -312,6 +329,9 @@ export default function UserManagement() {
                   <SelectItem value="super_admin">Super Admin</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="tl">TL · Team Lead</SelectItem>
+                  <SelectItem value="bl">BL</SelectItem>
+                  <SelectItem value="dm">DM</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -340,6 +360,7 @@ export default function UserManagement() {
                         <TableHead>User</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Role</TableHead>
+                        <TableHead>Cohort</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Manager</TableHead>
                         <TableHead>Joined</TableHead>
@@ -388,6 +409,9 @@ export default function UserManagement() {
                             {user.email || "-"}
                           </TableCell>
                           <TableCell>{getRoleBadge(user.role)}</TableCell>
+                          <TableCell>
+                            {user.cohort ? <Badge variant="outline">{user.cohort}</Badge> : "-"}
+                          </TableCell>
                           <TableCell>
                             {user.status === "pending" ? (
                               <Badge variant="secondary" className="gap-1">
@@ -450,9 +474,26 @@ export default function UserManagement() {
                   )}
                   <SelectItem value="admin">Admin (Team Manager)</SelectItem>
                   <SelectItem value="user">User (Team Member)</SelectItem>
+                  <SelectItem value="tl">TL (Team Lead)</SelectItem>
+                  <SelectItem value="bl">BL</SelectItem>
+                  <SelectItem value="dm">DM</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {editRole === "tl" && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-cohort">TL Cohort</Label>
+                <Select value={editCohort} onValueChange={setEditCohort}>
+                  <SelectTrigger data-testid="select-edit-user-cohort">
+                    <SelectValue placeholder="Select cohort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PD">PD</SelectItem>
+                    <SelectItem value="DTL">DTL</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {editRole === "user" && (
               <div className="space-y-2">
                 <Label htmlFor="manager">Manager</Label>
@@ -588,9 +629,26 @@ export default function UserManagement() {
                   )}
                   <SelectItem value="admin">Admin (Team Manager)</SelectItem>
                   <SelectItem value="user">User (Team Member)</SelectItem>
+                  <SelectItem value="tl">TL (Team Lead)</SelectItem>
+                  <SelectItem value="bl">BL</SelectItem>
+                  <SelectItem value="dm">DM</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {newUserRole === "tl" && (
+              <div className="space-y-2">
+                <Label htmlFor="new-cohort">TL Cohort</Label>
+                <Select value={newUserCohort} onValueChange={setNewUserCohort}>
+                  <SelectTrigger data-testid="select-new-user-cohort">
+                    <SelectValue placeholder="Select cohort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PD">PD</SelectItem>
+                    <SelectItem value="DTL">DTL</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {newUserRole === "user" && (
               <div className="space-y-2">
                 <Label htmlFor="newManager">Manager</Label>

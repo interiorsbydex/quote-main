@@ -144,7 +144,7 @@ The application follows a Material Design approach, emphasizing clarity and effi
 ### Multi-Category Line Item Wizard
 
 The Add Line Item wizard supports 6 item categories per room:
-- **Woodwork** (Xpress/Xpand): 6-7 step flow (Item Type → Unit Type → Finish → [Handle if available] → Description → Dimensions → Review)
+- **Woodwork** (Xpress/Xpand/Xclusive): 6-7 step flow (Item Type → Unit Type → Finish → [Handle if available] → Description → Dimensions → Review)
 - **Accessories**: 6-step flow (Item Type → Unit Type → Brand → Description → Qty → Review)
 - **Handles**: 6-7 step flow (Item Type → Unit Type → Size → [Image if available] → Description → Qty → Review) - uses materialType for size filtering, supports optional product image selection with auto-populated description
 - **Services**: 5-step flow (Item Type → Unit Type → Description → Qty → Review) - no Work Type step
@@ -155,7 +155,7 @@ Pricing logic:
 - Woodwork: rate × sqft × quantity (area-based)
 - Non-woodwork: rate × quantity (per-unit)
 
-**Pricing Architecture**: The AddLineItemWizard is the single source of truth for rate selection. It passes both the rate and catalogItemId directly to the server, avoiding any re-lookup from unfiltered catalog data. This ensures Xpress and Xpand items (which may have similar descriptions but different pricing) always capture the correct category-specific rate.
+**Pricing Architecture**: The AddLineItemWizard is the single source of truth for rate selection. It passes both the rate and catalogItemId directly to the server, avoiding any re-lookup from unfiltered catalog data. This ensures Xpress, Xpand, and Xclusive items (which may have similar descriptions but different pricing) always capture the correct category-specific rate.
 
 Rate and Sqft values are used internally for calculations but hidden from user UI (line item tables, review steps, edit dialogs, PDF exports).
 
@@ -182,7 +182,7 @@ rise.
 
 ## External Dependencies
 
--   **Google Sheets API v4**: Used for catalog data synchronization. Authenticates via Replit Connectors (OAuth2). It syncs 7 DeX catalog sheets, handling metadata-driven sheet discovery, fuzzy matching for sheet names, and a hybrid persistence strategy (Sheets → PostgreSQL → In-memory cache). Includes intelligent multi-select parsing and data quality tracking.
+-   **Google Sheets API v4**: Used for catalog data synchronization. Authenticates via Replit Connectors (OAuth2). It syncs 8 DeX catalog sheets, handling metadata-driven sheet discovery by stable GID and a hybrid persistence strategy (Sheets → PostgreSQL → in-memory cache). Includes intelligent multi-select parsing and data quality tracking.
 -   **Replit Infrastructure**: Leverages Replit Connectors for Google Sheets OAuth and Replit's Neon integration for PostgreSQL database hosting.
 -   **Third-Party Libraries**:
     -   `@radix-ui/*`: UI primitives for accessibility.

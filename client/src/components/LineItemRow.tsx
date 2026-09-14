@@ -14,6 +14,8 @@ export interface LineItem {
   quantity: number;
   amount: number;
   itemType?: string;
+  isComplimentary?: boolean;
+  complimentaryOfferName?: string | null;
 }
 
 export interface LineItemRowProps {
@@ -24,6 +26,10 @@ export interface LineItemRowProps {
   isFinalized?: boolean;
   showDimensions?: boolean;
   discount?: number;
+  // Whether the "Amount After Discount" column is being rendered at all for this
+  // table. The caller decides this (discount > 0 OR any row in the table is
+  // complimentary) so every row in the table gets a consistent column count.
+  showDiscountColumn?: boolean;
 }
 
 export default function LineItemRow({ 
@@ -34,6 +40,7 @@ export default function LineItemRow({
   isFinalized = false,
   showDimensions = true,
   discount = 0,
+  showDiscountColumn = false,
 }: LineItemRowProps) {
   // Check if item has dimensions (non-zero length and height)
   const hasDimensions = item.lengthFt > 0 && item.heightFt > 0;
@@ -72,11 +79,22 @@ export default function LineItemRow({
       <TableCell className="text-right font-mono font-semibold" data-testid="text-amount">
         ₹{Math.round(item.amount).toLocaleString('en-IN')}
       </TableCell>
-      {discount > 0 && (
+      {showDiscountColumn && (
         <TableCell className="text-right font-mono" data-testid="text-amount-after-discount">
-          {(item.itemType || 'woodworks') === 'woodworks' 
-            ? `₹${Math.round(item.amount * (1 - discount / 100)).toLocaleString('en-IN')}`
-            : 'Not Applicable'}
+          {item.isComplimentary ? (
+            <>
+              <div className="text-xs text-muted-foreground font-sans">
+                Complimentary{item.complimentaryOfferName ? ` (${item.complimentaryOfferName})` : ''}
+              </div>
+              <div className="font-semibold">₹0</div>
+            </>
+          ) : discount > 0 ? (
+            (item.itemType || 'woodworks') === 'woodworks'
+              ? `₹${Math.round(item.amount * (1 - discount / 100)).toLocaleString('en-IN')}`
+              : 'Not Applicable'
+          ) : (
+            'Not Applicable'
+          )}
         </TableCell>
       )}
       {!isFinalized && (

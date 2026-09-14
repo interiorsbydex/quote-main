@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Database, FileText, Folder, User, AlertCircle, CheckCircle, ArrowLeft, Eye, Clock, FileSpreadsheet, Users, IndianRupee, TrendingUp, Building2, ChevronDown, ChevronRight, ExternalLink, GitBranch } from "lucide-react";
+import { RefreshCw, Database, FileText, Folder, User, AlertCircle, CheckCircle, ArrowLeft, Eye, Clock, FileSpreadsheet, Users, IndianRupee, TrendingUp, Building2, ChevronDown, ChevronRight, ExternalLink, GitBranch, Gift, ListChecks } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "wouter";
@@ -70,6 +70,7 @@ interface CatalogSyncResult {
   // New DeX category counts
   xpressCount: number;
   xpandCount: number;
+  xclusiveCount: number;
   accessoriesCount: number;
   servicesCount: number;
   lightsCount: number;
@@ -226,6 +227,18 @@ export default function AdminDashboard() {
                 Pricing Versions
               </Button>
             </Link>
+            <Link href="/admin/offers">
+              <Button variant="outline" size="sm" data-testid="button-manage-offers">
+                <Gift className="mr-2 h-4 w-4" />
+                Offers
+              </Button>
+            </Link>
+            <Link href="/admin/milestone-settings">
+              <Button variant="outline" size="sm" data-testid="button-milestone-settings">
+                <ListChecks className="mr-2 h-4 w-4" />
+                Milestones
+              </Button>
+            </Link>
             <Link href="/">
               <Button variant="outline" size="sm" data-testid="button-view-projects">
                 <Folder className="mr-2 h-4 w-4" />
@@ -342,7 +355,7 @@ export default function AdminDashboard() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Material Catalog</p>
                   <p className="text-xs text-muted-foreground">
-                    Syncs 7 DeX category sheets (Xpress, Xpand, Accessories, Services, Lights, Stone Master, Handles) from Google Sheets to database
+                    Syncs all enabled DeX category sheets from Google Sheets to the catalog draft
                   </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
@@ -405,6 +418,12 @@ export default function AdminDashboard() {
                         <p className="text-xs text-muted-foreground">Xpand</p>
                         <p className="text-lg font-mono font-semibold" data-testid="count-xpand">
                           {lastSyncResult.xpandCount || 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Xclusive</p>
+                        <p className="text-lg font-mono font-semibold" data-testid="count-xclusive">
+                          {lastSyncResult.xclusiveCount || 0}
                         </p>
                       </div>
                       <div>

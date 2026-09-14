@@ -14,6 +14,7 @@ import CatalogBrowser from "@/pages/CatalogBrowser";
 import TestQuotations from "@/pages/TestQuotations";
 import BrandSettings from "@/pages/BrandSettings";
 import ProjectDetail from "@/pages/ProjectDetail";
+import ProjectFolder from "@/pages/ProjectFolder";
 import RoomDetail from "@/pages/RoomDetail";
 import SharedQuote from "@/pages/SharedQuote";
 import ClientCreditsPortal from "@/pages/ClientCreditsPortal";
@@ -22,6 +23,8 @@ import CreditsManagement from "@/pages/CreditsManagement";
 import ProjectCreditsDetail from "@/pages/ProjectCreditsDetail";
 import NotFound from "@/pages/not-found";
 import PricingVersions from "@/pages/PricingVersions";
+import Offers from "@/pages/Offers";
+import MilestoneSettings from "@/pages/MilestoneSettings";
 
 function DynamicBrandingProvider({ children }: { children: React.ReactNode }) {
   useDynamicBranding();
@@ -55,6 +58,8 @@ function Router() {
               <Route path="/analytics" component={Analytics} />
               <Route path="/admin" component={AdminDashboard} />
               <Route path="/admin/pricing-versions" component={PricingVersions} />
+              <Route path="/admin/offers" component={Offers} />
+              <Route path="/admin/milestone-settings" component={MilestoneSettings} />
               <Route path="/admin/users" component={UserManagement} />
               <Route path="/admin/catalog" component={CatalogBrowser} />
               <Route path="/admin/settings" component={BrandSettings} />
@@ -62,6 +67,7 @@ function Router() {
               <Route path="/admin/credits/:projectId" component={ProjectCreditsDetail} />
               <Route path="/admin/credits" component={CreditsManagement} />
               <Route path="/project/:id" component={ProjectDetail} />
+              <Route path="/folder/:pid" component={ProjectFolder} />
               <Route path="/room/:id" component={RoomDetail} />
               <Route component={NotFound} />
             </Switch>

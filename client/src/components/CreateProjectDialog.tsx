@@ -6,14 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Users } from "lucide-react";
+import { LockKeyhole, Plus, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { DexStyle, Client } from "@/lib/types";
+import type { DexStyle, Client, Project } from "@/lib/types";
+import { findLatestPidForClient } from "@/lib/project-folders";
 
 export interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: ProjectFormData) => void;
+  projects?: Project[];
   /** Initial values applied when the dialog opens, e.g. prefilled from a CRM deep link. */
   initialValues?: Partial<Pick<ProjectFormData, "clientName" | "pid" | "projectType">>;
 }
@@ -23,7 +25,7 @@ export type { DexStyle };
 export interface ProjectFormData {
   clientId?: string;
   clientName: string;
-  pid?: string; // Project ID for easy reference/search
+  pid: string; // Project ID for easy reference/search
   projectType: "Residential" | "Commercial" | "Others";
   category: DexStyle;
   multiStyleEnabled: boolean;
@@ -31,9 +33,10 @@ export interface ProjectFormData {
 
 interface FormErrors {
   clientName?: string;
+  pid?: string;
 }
 
-export default function CreateProjectDialog({ open, onOpenChange, onSubmit, initialValues }: CreateProjectDialogProps) {
+export default function CreateProjectDialog({ open, onOpenChange, onSubmit, initialValues, projects = [] }: CreateProjectDialogProps) {
   const [formData, setFormData] = useState<ProjectFormData>({
     clientId: undefined,
     clientName: "",
@@ -45,6 +48,7 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [isNewClient, setIsNewClient] = useState(true);
+  const crmPidIsLocked = Boolean(initialValues?.pid?.trim());
 
   // Apply CRM deep-link prefill values each time the dialog opens.
   useEffect(() => {
@@ -53,7 +57,7 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
         ...prev,
         clientName: initialValues.clientName ?? prev.clientName,
         pid: initialValues.pid ?? prev.pid,
-        projectType: initialValues.projectType ?? prev.projectType,
+        projectType: initialValues.projectType ?? "Residential",
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,6 +85,10 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
         if (value.trim().length < 2) return "Client name must be at least 2 characters";
         if (value.trim().length > 100) return "Client name must be less than 100 characters";
         return undefined;
+      case 'pid':
+        if (!value.trim()) return "Project ID (PID) is required";
+        if (value.trim().length > 100) return "Project ID must be less than 100 characters";
+        return undefined;
       default:
         return undefined;
     }
@@ -104,12 +112,23 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
   const handleClientSelect = (clientId: string) => {
     if (clientId === "new") {
       setIsNewClient(true);
-      setFormData({ ...formData, clientId: undefined, clientName: "", pid: "" });
+      setFormData({
+        ...formData,
+        clientId: undefined,
+        clientName: "",
+        pid: crmPidIsLocked ? formData.pid : "",
+      });
     } else {
       const client = clients.find(c => c.id === clientId);
       if (client) {
         setIsNewClient(false);
-        setFormData({ ...formData, clientId: client.id, clientName: client.name });
+        setFormData({
+          ...formData,
+          clientId: client.id,
+          clientName: client.name,
+          pid: crmPidIsLocked ? formData.pid : findLatestPidForClient(projects, client.id),
+        });
+        setErrors(prev => ({ ...prev, clientName: undefined, pid: undefined }));
       }
     }
   };
@@ -117,14 +136,16 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
     const clientNameError = validateField('clientName', formData.clientName);
+    const pidError = validateField('pid', formData.pid);
     if (clientNameError) newErrors.clientName = clientNameError;
+    if (pidError) newErrors.pid = pidError;
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTouched({ clientName: true });
+    setTouched({ clientName: true, pid: true });
     if (!validateForm()) return;
     
     let finalClientId = formData.clientId;
@@ -141,7 +162,12 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
       }
     }
     
-    onSubmit({ ...formData, clientId: finalClientId });
+    onSubmit({
+      ...formData,
+      clientId: finalClientId,
+      clientName: formData.clientName.trim(),
+      pid: formData.pid.trim(),
+    });
     onOpenChange(false);
     setFormData({
       clientId: undefined,
@@ -219,15 +245,34 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="pid">Project ID (PID)</Label>
+              <Label htmlFor="pid" className="flex items-center gap-1">
+                Project ID (PID) <span className="text-destructive">*</span>
+                {crmPidIsLocked && <LockKeyhole className="h-3.5 w-3.5 text-muted-foreground" aria-label="Locked from CRM" />}
+              </Label>
               <Input
                 id="pid"
-                value={formData.pid || ""}
-                onChange={(e) => setFormData({ ...formData, pid: e.target.value })}
-                placeholder="Enter project ID (optional)"
+                value={formData.pid}
+                onChange={(e) => handleFieldChange('pid', e.target.value)}
+                onBlur={() => handleBlur('pid')}
+                placeholder="Enter project ID"
+                readOnly={crmPidIsLocked}
+                aria-readonly={crmPidIsLocked}
+                aria-required="true"
+                className={`${crmPidIsLocked ? "bg-muted text-muted-foreground" : ""} ${errors.pid ? "border-destructive" : ""}`}
                 data-testid="input-pid"
               />
-              <p className="text-xs text-muted-foreground">Optional identifier for easy project search</p>
+              {errors.pid && touched.pid && (
+                <p className="text-sm text-destructive" data-testid="error-pid">
+                  {errors.pid}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {crmPidIsLocked
+                  ? "Filled by CRM and locked for this quote"
+                  : !isNewClient && formData.pid
+                    ? "Filled from this client's most recently updated project"
+                    : "Required. Quotes with the same PID are grouped in one folder."}
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -260,6 +305,7 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
                   <SelectContent>
                     <SelectItem value="DeX - Xpress">Xpress</SelectItem>
                     <SelectItem value="DeX - Xpand">Xpand</SelectItem>
+                    <SelectItem value="DeX - Xclusive">Xclusive</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

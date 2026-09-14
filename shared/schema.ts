@@ -27,6 +27,7 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   role: text("role").notNull().default("user"), // 'super_admin', 'admin', or 'user'
+  cohort: text("cohort"), // TL cohort: 'PD' or 'DTL'; null for users outside a TL cohort
   status: text("status").notNull().default("active"), // 'pending' or 'active'
   managerId: varchar("manager_id").references((): any => users.id, { onDelete: "set null" }), // Team manager reference
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
@@ -71,6 +72,9 @@ export type Client = typeof clients.$inferSelect;
 export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tlId: varchar("tl_id").references(() => users.id, { onDelete: "set null" }),
+  blId: varchar("bl_id").references(() => users.id, { onDelete: "set null" }),
+  dmId: varchar("dm_id").references(() => users.id, { onDelete: "set null" }),
   clientId: varchar("client_id").references(() => clients.id, { onDelete: "set null" }),
   clientName: text("client_name").notNull(),
   pid: text("pid"), // Project ID for easy reference/search
@@ -105,10 +109,54 @@ export const insertProjectSchema = createInsertSchema(projects).omit({
   createdAt: true,
   updatedAt: true,
   pricingVersionId: true,
+  tlId: true,
+  blId: true,
+  dmId: true,
 });
 
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Project = typeof projects.$inferSelect;
+
+// Configurable quote-level offers. They are intentionally separate from catalog
+// line items and the existing woodwork discount so GST/taxable values stay intact.
+export const offers = pgTable("offers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  productCategory: text("product_category").notNull().default("Offer Product"),
+  offerType: text("offer_type").notNull(), // 'percentage' | 'cash'
+  percentageValue: real("percentage_value"),
+  cashValue: real("cash_value"),
+  minWoodworkValue: real("min_woodwork_value").notNull().default(0),
+  maxWoodworkValue: real("max_woodwork_value"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export type Offer = typeof offers.$inferSelect;
+
+// A draft project's selected offers. The commercial terms are copied here when
+// selected so the exact offer accepted on a generated quote remains auditable.
+export const projectOffers = pgTable("project_offers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  offerId: varchar("offer_id").notNull().references(() => offers.id, { onDelete: "restrict" }),
+  offerName: text("offer_name").notNull(),
+  productCategory: text("product_category").notNull().default("Offer Product"),
+  offerType: text("offer_type").notNull(),
+  percentageValue: real("percentage_value"),
+  cashValue: real("cash_value"),
+  minWoodworkValue: real("min_woodwork_value").notNull().default(0),
+  maxWoodworkValue: real("max_woodwork_value"),
+  isLocked: boolean("is_locked").notNull().default(false),
+  lockedAt: timestamp("locked_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  uniqueIndex("project_offers_project_offer_unique").on(table.projectId, table.offerId),
+  index("project_offers_project_idx").on(table.projectId),
+]);
+
+export type ProjectOffer = typeof projectOffers.$inferSelect;
 
 // Rooms table
 export const rooms = pgTable("rooms", {
@@ -129,28 +177,68 @@ export const insertRoomSchema = createInsertSchema(rooms).omit({
 export type InsertRoom = z.infer<typeof insertRoomSchema>;
 export type Room = typeof rooms.$inferSelect;
 
+// ---- Room sub-categories ----
+// Optional grouping layer between a Room and its line items, e.g. a "Family Living
+// Room" containing "TV Unit" / "Crockery Unit" / "Pooja Unit" sub-categories. A line
+// item with no subcategoryId is "directly under the room" -- this is what every line
+// item created before this feature already is, so nothing needs backfilling.
+export const roomSubcategories = pgTable("room_subcategories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomId: varchar("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const insertRoomSubcategorySchema = createInsertSchema(roomSubcategories).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  name: z.string().min(1, "Name is required"),
+});
+
+export type InsertRoomSubcategory = z.infer<typeof insertRoomSubcategorySchema>;
+export type RoomSubcategory = typeof roomSubcategories.$inferSelect;
+
 // Item type for GST calculation purposes
 // - woodworks: Modular items (Xpress/Xpand) - 18% GST added
 // - services: Service items - 18% GST added
 // - accessories: Accessories/Lights/Handles/Stone Master - GST inclusive (no additional GST)
-export type ItemType = 'woodworks' | 'services' | 'accessories';
+export type ItemType = 'woodworks' | 'services' | 'accessories' | 'furniture';
 
 // Line Items table
 export const lineItems = pgTable("line_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   roomId: varchar("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  // Optional grouping under a room sub-category. Null means "directly under the room",
+  // which is what every pre-existing line item already is. Deleting a sub-category sets
+  // this back to null (ungroups the item) rather than deleting the item.
+  subcategoryId: varchar("subcategory_id").references(() => roomSubcategories.id, { onDelete: "set null" }),
   description: text("description").notNull(),
   unitType: text("unit_type").notNull(),
   lengthFt: real("length_ft").notNull(),
   heightFt: real("height_ft").notNull(),
+  depthFt: real("depth_ft").notNull().default(0),
   sqft: real("sqft").notNull(),
   lengthMm: real("length_mm").notNull(),
   heightMm: real("height_mm").notNull(),
+  depthMm: real("depth_mm").notNull().default(0),
   rate: real("rate").notNull(),
   quantity: real("quantity").notNull().default(1),
   amount: real("amount").notNull(),
-  itemType: text("item_type").notNull().default("woodworks"), // 'woodworks', 'services', 'accessories'
+  itemType: text("item_type").notNull().default("woodworks"), // 'woodworks', 'services', 'accessories', 'furniture'
+  // Stable catalog identity plus a fallback image snapshot. Reads prefer the current
+  // image on the project's pinned catalog version, so an Admin can update an image in
+  // the Sheet without recreating the quote line item.
+  catalogItemCode: text("catalog_item_code"),
+  imageUrl: text("image_url"),
+  // Complimentary Offer: shown to the customer with its MRP (`amount`, untouched) but
+  // displayed as a named ₹0 line and excluded from every total. See
+  // shared/calculations.ts computeCategoryTotals for the single point that enforces the
+  // exclusion. complimentaryOfferName is required whenever isComplimentary is true.
+  isComplimentary: boolean("is_complimentary").notNull().default(false),
+  complimentaryOfferName: text("complimentary_offer_name"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
@@ -163,7 +251,13 @@ export const insertLineItemSchema = createInsertSchema(lineItems).omit({
   rate: z.number().min(0, "Rate cannot be negative"),
   lengthFt: z.number().min(0, "Length cannot be negative"),
   heightFt: z.number().min(0, "Height cannot be negative"),
-});
+  depthFt: z.number().min(0, "Depth cannot be negative"),
+  isComplimentary: z.boolean().optional().default(false),
+  complimentaryOfferName: z.string().nullable().optional(),
+}).refine(
+  (data) => !data.isComplimentary || !!data.complimentaryOfferName?.trim(),
+  { message: "Offer name is required for a complimentary item", path: ["complimentaryOfferName"] }
+);
 
 export type InsertLineItem = z.infer<typeof insertLineItemSchema>;
 export type LineItem = typeof lineItems.$inferSelect;
@@ -200,6 +294,16 @@ export const catalogItems = pgTable("catalog_items", {
   
   // Image URL for product display
   imageUrl: text("image_url"), // URL to product image (hosted externally)
+  // Header-driven master data for Furniture and future catalog categories.
+  applicableArea: text("applicable_area"),
+  productCategory: text("product_category"),
+  subCategory: text("sub_category"),
+  finishType: text("finish_type"),
+  dimension: text("dimension"),
+  requiresLength: boolean("requires_length").notNull().default(false),
+  requiresHeight: boolean("requires_height").notNull().default(false),
+  requiresDepth: boolean("requires_depth").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
   
   // Multi-select columns stored as jsonb arrays
   materials: jsonb("materials").$type<string[]>().default([]), // e.g., ["Oak", "Walnut", "Teak"]
@@ -207,7 +311,7 @@ export const catalogItems = pgTable("catalog_items", {
   specifications: jsonb("specifications").$type<string[]>().default([]), // Any other multi-select fields
   
   // Item type for GST calculation (derived from category)
-  itemType: text("item_type").default("woodworks"), // 'woodworks', 'services', 'accessories'
+  itemType: text("item_type").default("woodworks"), // 'woodworks', 'services', 'accessories', 'furniture'
   
   // Data quality flags
   hasErrors: boolean("has_errors").default(false), // Row had parsing errors
@@ -239,6 +343,9 @@ export const catalogItems = pgTable("catalog_items", {
 
   // Sync metadata
   syncLogId: varchar("sync_log_id").references(() => catalogSyncLogs.id, { onDelete: "set null" }),
+  // Present for products created through the Admin "Add New Product" flow. Sheet-synced
+  // legacy rows remain null; createdAt records when the row was inserted.
+  createdBy: varchar("created_by").references((): any => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 }, (table) => [
@@ -255,6 +362,7 @@ export const catalogSyncLogs = pgTable("catalog_sync_logs", {
   // Row counts per category (new DeX structure)
   xpressCount: integer("xpress_count").default(0),
   xpandCount: integer("xpand_count").default(0),
+  xclusiveCount: integer("xclusive_count").notNull().default(0),
   accessoriesCount: integer("accessories_count").default(0),
   servicesCount: integer("services_count").default(0),
   lightsCount: integer("lights_count").default(0),
@@ -439,11 +547,25 @@ export type CreditRequest = typeof creditRequests.$inferSelect;
 // ---- Milestones ----
 // Status flow: pending → submitted → approved/rejected
 
+// Admin-managed setup for milestones created after a configuration change.
+// Project milestone records retain their own name and credit amount as a historical snapshot.
+export const milestoneStages = pgTable("milestone_stages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  creditAmount: real("credit_amount").notNull(),
+  category: text("category").notNull().default("additional"), // 'mandatory' | 'additional'
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export type MilestoneStage = typeof milestoneStages.$inferSelect;
+
 export const milestones = pgTable("milestones", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   roomId: varchar("room_id").references(() => rooms.id, { onDelete: "set null" }),
-  milestoneType: text("milestone_type"), // key from MILESTONE_TYPES (null for legacy free-text milestones)
+  milestoneType: text("milestone_type"), // key from milestone_stages (null for legacy free-text milestones)
   name: text("name").notNull(),
   description: text("description"),
   creditAmount: real("credit_amount").notNull(),
@@ -589,7 +711,7 @@ export const catalogSheetTabs = pgTable("catalog_sheet_tabs", {
   categoryName: text("category_name").notNull(), // normalised category stored on items
   itemCodePrefix: text("item_code_prefix").notNull(), // e.g. "XPR"
   // Which positional column mapping to use when parsing rows from this tab.
-  layout: text("layout").notNull(), // 'xpress_xpand' | 'services_stone' | 'lights' | 'accessories'
+  layout: text("layout").notNull(), // 'xpress_xpand' | 'xclusive' | 'services_stone' | 'lights' | 'accessories'
   itemType: text("item_type").notNull().default("woodworks"), // GST treatment
   enabled: boolean("enabled").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),

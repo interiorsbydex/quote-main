@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ClipboardCheck,
-  Database, Eye, FileSpreadsheet, History, Loader2, LockKeyhole,
+  Database, Eye, FileSpreadsheet, History, Loader2, LockKeyhole, PackagePlus,
   RefreshCw, RotateCcw, Search, ShieldCheck, Upload, Zap
 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 type Version = { id: string; versionNumber: number; name?: string; status: "draft" | "active" | "archived"; itemCount: number; actualItemCount: number; projectCount: number; notes?: string; publishedAt?: string; createdAt: string };
-type Change = { itemCode: string; roomType?: string | null; categoryName: string; description: string; oldRate?: number; newRate?: number; oldSellingPrice?: number; newSellingPrice?: number; changePct?: number };
+type Change = { itemCode: string; roomType?: string | null; categoryName: string; description: string; oldRate?: number; newRate?: number; oldSellingPrice?: number; newSellingPrice?: number; oldImageUrl?: string | null; newImageUrl?: string | null; priceChanged?: boolean; imageChanged?: boolean; changePct?: number };
 type Diff = { draftItemCount: number; changed: Change[]; added: Change[]; removed: Change[]; unchangedCount: number; uncomparable?: { from: number; to: number } };
 type Tab = { sheetTabId: number; tabTitle: string; categoryName: string; itemCodePrefix: string; layout: string; itemType: string; enabled: boolean; sortOrder: number };
 type CodePreview = { totalToAssign: number; totalAlreadyCoded: number; totalDataRows: number; tabs: Array<{ sheetTabId: string; tabTitle: string; prefix: string; headerPresent: boolean; dataRows: number; alreadyCoded: number; toAssign: number; duplicateCodes: string[]; malformedCodes: string[]; sample: string[] }> };
@@ -33,6 +33,19 @@ type DraftStatus = {
 };
 type VersionItem = { itemCode: string | null; categoryName: string | null; roomType: string | null; unitType: string | null; materialType: string | null; brand: string | null; description: string | null; rate: number | null; markup: number | null; sellingPrice: number | null };
 type VersionItems = { version: { id: string; name: string; status: string }; total: number; limit: number; offset: number; items: VersionItem[] };
+type NewProductTab = {
+  sheetTabId: number;
+  tabTitle: string;
+  categoryName: string;
+  itemCodePrefix: string;
+  layout: string;
+  headers: Array<{ index: number; column: string; label: string }>;
+  priceColumn: { index: number; column: string; label: string };
+};
+type NewProductOptions = {
+  tabs: NewProductTab[];
+  versions: Array<{ id: string; versionNumber: number; name: string; status: "draft" | "active" | "archived"; itemCount: number }>;
+};
 
 const money = (n?: number | null) => n == null ? "—" : `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 const date = (value?: string | null) => value ? new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -42,19 +55,21 @@ async function getJson<T>(url: string): Promise<T> { const r = await fetch(url, 
 
 function Skeleton({ className = "" }: { className?: string }) { return <div className={`animate-pulse rounded bg-muted ${className}`} />; }
 
-function ChangeRow({ row, kind }: { row: Change; kind: "up" | "down" | "added" | "removed" }) {
+function ChangeRow({ row, kind }: { row: Change; kind: "up" | "down" | "image" | "added" | "removed" }) {
   const pct = row.changePct ?? 0;
-  const color = kind === "up" ? "text-rose-700 bg-rose-50 border-rose-200" : kind === "down" ? "text-emerald-700 bg-emerald-50 border-emerald-200" : kind === "added" ? "text-sky-700 bg-sky-50 border-sky-200" : "text-slate-600 bg-slate-50 border-slate-200";
+  const color = kind === "up" ? "text-rose-700 bg-rose-50 border-rose-200" : kind === "down" ? "text-emerald-700 bg-emerald-50 border-emerald-200" : kind === "image" ? "text-violet-700 bg-violet-50 border-violet-200" : kind === "added" ? "text-sky-700 bg-sky-50 border-sky-200" : "text-slate-600 bg-slate-50 border-slate-200";
   return <div className="grid grid-cols-[minmax(6rem,1fr)_minmax(12rem,2fr)_auto_auto_auto] gap-3 items-center px-4 py-3 border-b last:border-0 text-sm">
     <span className="font-mono text-xs font-semibold text-foreground">{row.itemCode}</span>
     <span className="min-w-0"><span className="block truncate font-medium">{row.description || "Unnamed item"}</span><span className="text-xs text-muted-foreground">{row.categoryName}{row.roomType ? ` · ${row.roomType}` : ""}</span></span>
-    <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">{money(row.oldSellingPrice ?? row.oldRate)} <span className="mx-1">→</span> <strong className="text-foreground">{money(row.newSellingPrice ?? row.newRate)}</strong></span>
-    <span className={`rounded border px-2 py-1 text-xs font-semibold whitespace-nowrap ${color}`}>{kind === "added" ? "New" : kind === "removed" ? "Removed" : `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`}</span>
-    {Math.abs(pct) >= 25 && <AlertTriangle className="h-4 w-4 text-amber-600" aria-label="Large price movement" />}
+    {kind === "image"
+      ? <span className="text-xs text-muted-foreground whitespace-nowrap">Product image updated</span>
+      : <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">{money(row.oldSellingPrice ?? row.oldRate)} <span className="mx-1">→</span> <strong className="text-foreground">{money(row.newSellingPrice ?? row.newRate)}</strong>{row.imageChanged && <span className="ml-2 font-sans text-violet-700">· image updated</span>}</span>}
+    <span className={`rounded border px-2 py-1 text-xs font-semibold whitespace-nowrap ${color}`}>{kind === "added" ? "New" : kind === "removed" ? "Removed" : kind === "image" ? "Image" : `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`}</span>
+    {kind !== "image" && Math.abs(pct) >= 25 && <AlertTriangle className="h-4 w-4 text-amber-600" aria-label="Large price movement" />}
   </div>;
 }
 
-function DiffSection({ title, rows, kind }: { title: string; rows: Change[]; kind: "up" | "down" | "added" | "removed" }) {
+function DiffSection({ title, rows, kind }: { title: string; rows: Change[]; kind: "up" | "down" | "image" | "added" | "removed" }) {
   const [open, setOpen] = useState(true);
   if (!rows.length) return null;
   return <section className="border rounded-lg overflow-hidden">
@@ -62,6 +77,7 @@ function DiffSection({ title, rows, kind }: { title: string; rows: Change[]; kin
       <span className="flex items-center gap-2 font-semibold text-sm">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}{title}<Badge variant="secondary">{rows.length}</Badge></span>
       {kind === "up" && <span className="text-xs text-rose-700">Raises client-facing prices for new quotes</span>}
       {kind === "down" && <span className="text-xs text-emerald-700">Lowers prices for new quotes</span>}
+      {kind === "image" && <span className="text-xs text-violet-700">Updates the product image shown in the catalog</span>}
     </button>
     {open && <div className="max-h-[25rem] overflow-auto">{rows.map((r, i) => <ChangeRow key={`${r.itemCode}-${i}`} row={r} kind={kind} />)}</div>}
   </section>;
@@ -169,6 +185,11 @@ export default function PricingVersions() {
   const [selectedGids, setSelectedGids] = useState<number[] | null>(null);
   const [publishName, setPublishName] = useState("");
   const [publishNotes, setPublishNotes] = useState("");
+  const [newProductOpen, setNewProductOpen] = useState(false);
+  const [newProductTabId, setNewProductTabId] = useState<number | null>(null);
+  const [newProductCode, setNewProductCode] = useState("");
+  const [newProductCells, setNewProductCells] = useState<Record<number, string>>({});
+  const [newProductPrices, setNewProductPrices] = useState<Record<string, string>>({});
   const [tab, setTab] = useState("overview");
 
   const versions = useQuery<Version[]>({ queryKey: ["/api/admin/pricing-versions"] });
@@ -178,15 +199,35 @@ export default function PricingVersions() {
   const codePreview = useQuery<CodePreview>({ queryKey: ["/api/admin/item-codes/preview"] });
   const audit = useQuery<Audit[]>({ queryKey: ["/api/admin/pricing-versions/audit?limit=100"] });
   const instantSync = useQuery<{ enabled: boolean }>({ queryKey: ["/api/admin/settings/instant-sync"] });
+  const newProductOptions = useQuery<NewProductOptions>({
+    queryKey: ["/api/admin/new-products/options"],
+    enabled: newProductOpen,
+  });
   const instantSyncOn = instantSync.data?.enabled ?? false;
 
   const live = versions.data?.find(v => v.status === "active");
   const draft = versions.data?.find(v => v.status === "draft");
   const diff = preview.data;
   const totalChanges = (diff?.changed.length || 0) + (diff?.added.length || 0) + (diff?.removed.length || 0);
+  const priceChanges = diff?.changed.filter(change => change.priceChanged !== false) || [];
+  const imageOnlyChanges = diff?.changed.filter(change => change.imageChanged && change.priceChanged === false) || [];
+  const imageChangeCount = diff?.changed.filter(change => change.imageChanged).length || 0;
   const enabledTabs = useMemo(() => (sheetTabs.data || []).filter(t => t.enabled), [sheetTabs.data]);
   // No explicit choice means every tab, which is what the button says it will do.
   const gidsToSync = selectedGids ?? enabledTabs.map(t => t.sheetTabId);
+  const selectedProductTab = newProductOptions.data?.tabs.find(t => t.sheetTabId === newProductTabId);
+  const selectedProductDestinations = Object.entries(newProductPrices)
+    .filter(([, price]) => price !== "")
+    .map(([versionId, price]) => ({ versionId, price: Number(price) }));
+  const selectedDraft = newProductOptions.data?.versions.find(
+    v => v.status === "draft" && newProductPrices[v.id] !== undefined
+  );
+
+  useEffect(() => {
+    if (newProductOpen && !newProductTabId && newProductOptions.data?.tabs[0]) {
+      setNewProductTabId(newProductOptions.data.tabs[0].sheetTabId);
+    }
+  }, [newProductOpen, newProductOptions.data, newProductTabId]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/admin/pricing-versions"] });
@@ -234,6 +275,27 @@ export default function PricingVersions() {
     onSuccess: (d) => { queryClient.invalidateQueries({ queryKey: ["/api/admin/item-codes/preview"] }); toast({ title: "Codes generated", description: d.message }); },
     onError: (e: Error) => toast({ title: "Could not generate codes", description: e.message, variant: "destructive" }),
   });
+  const addProduct = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/new-products", {
+      sheetTabId: newProductTabId,
+      itemCode: newProductCode || undefined,
+      cells: newProductCells,
+      destinations: selectedProductDestinations,
+    }).then(r => r.json()),
+    onSuccess: (data) => {
+      setNewProductOpen(false);
+      setNewProductTabId(null);
+      setNewProductCode("");
+      setNewProductCells({});
+      setNewProductPrices({});
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/new-products/options"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pricing-versions/audit?limit=100"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/item-codes/preview"] });
+      toast({ title: "Product added", description: data.message });
+    },
+    onError: (error: Error) => toast({ title: "Could not add product", description: error.message, variant: "destructive" }),
+  });
   const invalidCodes = useMemo(() => (codePreview.data?.tabs || []).reduce((n, t) => n + t.duplicateCodes.length + t.malformedCodes.length, 0), [codePreview.data]);
 
   const toggleGid = (gid: number) => {
@@ -249,7 +311,7 @@ export default function PricingVersions() {
       </div>
     </header>
     <main className="container mx-auto max-w-7xl space-y-7 px-4 py-8 md:px-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="mb-2 text-sm font-medium text-primary">Catalog control room</p><h2 className="text-3xl font-semibold tracking-tight">Prices change here only when you say so.</h2><p className="mt-2 max-w-2xl text-muted-foreground">The Sheet is your source. The Draft is your review copy. Only Publish creates a frozen version for new quotations.</p></div><Button onClick={() => { setSelectedGids(null); setSyncOpen(true); }} disabled={refresh.isPending} data-testid="button-sync-sheet"><RefreshCw className={`mr-2 h-4 w-4 ${refresh.isPending ? "animate-spin" : ""}`} />{refresh.isPending ? "Syncing sheet…" : instantSyncOn ? "Sync sheet & go live" : "Sync Google Sheet"}</Button></div>
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="mb-2 text-sm font-medium text-primary">Catalog control room</p><h2 className="text-3xl font-semibold tracking-tight">Prices change here only when you say so.</h2><p className="mt-2 max-w-2xl text-muted-foreground">The Sheet is your source. The Draft is your review copy. Only Publish creates a frozen version for new quotations.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Button variant="outline" onClick={() => setNewProductOpen(true)} data-testid="button-add-new-product"><PackagePlus className="mr-2 h-4 w-4" />Add New Product</Button><Button onClick={() => { setSelectedGids(null); setSyncOpen(true); }} disabled={refresh.isPending} data-testid="button-sync-sheet"><RefreshCw className={`mr-2 h-4 w-4 ${refresh.isPending ? "animate-spin" : ""}`} />{refresh.isPending ? "Syncing sheet…" : instantSyncOn ? "Sync sheet & go live" : "Sync Google Sheet"}</Button></div></div>
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="border-l-4 border-l-sky-500"><CardHeader className="pb-3"><CardDescription className="flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-sky-600" />1 · Google Sheet</CardDescription><CardTitle className="text-lg">Team’s working source</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Edit prices freely. Nothing changes for clients until this is synced, reviewed, and published.</p></CardContent></Card>
         <Card className="border-l-4 border-l-amber-500"><CardHeader className="pb-3"><CardDescription className="flex items-center gap-2"><Database className="h-4 w-4 text-amber-600" />2 · Draft</CardDescription><CardTitle className="text-lg">{draft ? `${draft.actualItemCount.toLocaleString()} items ready` : "Working copy"}</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Syncing refreshes this one editable copy. Repeated syncs never create versions.</p></CardContent></Card>
@@ -282,7 +344,7 @@ export default function PricingVersions() {
         <TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="overview" data-testid="tab-price-preview">Draft preview {totalChanges > 0 && <Badge className="ml-2" variant="secondary">{totalChanges}</Badge>}</TabsTrigger><TabsTrigger value="versions" data-testid="tab-published-versions">Published versions</TabsTrigger><TabsTrigger value="wiring" data-testid="tab-sheet-wiring">Sheet wiring</TabsTrigger><TabsTrigger value="audit" data-testid="tab-audit-log">Audit log</TabsTrigger><TabsTrigger value="help" data-testid="tab-help">How this works</TabsTrigger></TabsList>
         <TabsContent value="overview" className="space-y-5 pt-5">
           <DraftProvenance status={draftStatus.data} loading={draftStatus.isLoading} />
-          <Card><CardHeader><div className="flex flex-col justify-between gap-4 md:flex-row md:items-start"><div><CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5 text-primary" />Review Draft before publishing</CardTitle><CardDescription className="mt-1">{live ? `Draft compared with Live Version ${live.versionNumber}.` : "Your first draft is ready for review."} Price movement is shown against the current selling price.</CardDescription></div><div className="flex flex-col gap-2 sm:flex-row"><Button disabled={!diff || totalChanges === 0 || !live} onClick={() => { setUpdateAck(false); setUpdateOpen(true); }} data-testid="button-update-live"><Zap className="mr-2 h-4 w-4" />Update live price list</Button><Button variant="outline" disabled={!diff || totalChanges === 0} onClick={() => { setPublishAck(false); setPublishOpen(true); }} data-testid="button-publish-version"><Upload className="mr-2 h-4 w-4" />Release as new version</Button></div></div></CardHeader><CardContent>{preview.isLoading ? <div className="space-y-3"><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div> : preview.isError ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">Could not load the comparison. Refresh the page and try again.</div> : !diff || totalChanges === 0 ? <div className="flex flex-col items-center rounded-lg border border-dashed py-14 text-center"><Check className="mb-3 h-8 w-8 text-emerald-600" /><p className="font-medium">Draft matches Live</p><p className="mt-1 text-sm text-muted-foreground">There are no price changes waiting to be published.</p></div> : <div className="space-y-3"><div className="grid gap-3 sm:grid-cols-4"><div className="rounded-lg bg-rose-50 p-3"><p className="text-xs text-rose-700">Price changes</p><p className="font-mono text-xl font-semibold text-rose-900">{diff.changed.length}</p></div><div className="rounded-lg bg-sky-50 p-3"><p className="text-xs text-sky-700">Added</p><p className="font-mono text-xl font-semibold text-sky-900">{diff.added.length}</p></div><div className="rounded-lg bg-slate-100 p-3"><p className="text-xs text-slate-600">Removed</p><p className="font-mono text-xl font-semibold">{diff.removed.length}</p></div><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Unchanged</p><p className="font-mono text-xl font-semibold">{diff.unchangedCount}</p></div></div><div className="rounded border bg-amber-50/60 p-3 text-sm text-amber-950"><AlertTriangle className="mr-2 inline h-4 w-4" />Rows with a 25% or larger movement are flagged. Check the Sheet for mistyped rates before publishing.</div><DiffSection title="Changed prices" rows={diff.changed.filter(r => (r.changePct || 0) >= 0)} kind="up" /><DiffSection title="Changed prices" rows={diff.changed.filter(r => (r.changePct || 0) < 0)} kind="down" /><DiffSection title="New catalog items" rows={diff.added} kind="added" /><DiffSection title="Removed from Draft" rows={diff.removed} kind="removed" /></div>}</CardContent></Card>
+          <Card><CardHeader><div className="flex flex-col justify-between gap-4 md:flex-row md:items-start"><div><CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5 text-primary" />Review Draft before publishing</CardTitle><CardDescription className="mt-1">{live ? `Draft compared with Live Version ${live.versionNumber}.` : "Your first draft is ready for review."} Price and product-image changes are shown here.</CardDescription></div><div className="flex flex-col items-end gap-2"><div className="flex flex-col gap-2 sm:flex-row"><Button disabled={!diff || totalChanges === 0 || !live || (diff?.uncomparable?.to ?? 0) > 0} onClick={() => { setUpdateAck(false); setUpdateOpen(true); }} data-testid="button-update-live"><Zap className="mr-2 h-4 w-4" />Update live price list</Button><Button variant="outline" disabled={!diff || totalChanges === 0} onClick={() => { setPublishAck(false); setPublishOpen(true); }} data-testid="button-publish-version"><Upload className="mr-2 h-4 w-4" />Release as new version</Button></div>{(diff?.uncomparable?.to ?? 0) > 0 && <p className="flex items-center gap-1.5 text-xs text-amber-700"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />{diff!.uncomparable!.to} item{diff!.uncomparable!.to === 1 ? "" : "s"} in the Draft {diff!.uncomparable!.to === 1 ? "has" : "have"} no item code yet — go to <button className="underline underline-offset-2" onClick={() => setTab("wiring")}>Sheet Wiring → Item Codes</button>, generate codes, then re-sync before updating live.</p>}</div></div></CardHeader><CardContent>{preview.isLoading ? <div className="space-y-3"><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div> : preview.isError ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">Could not load the comparison. Refresh the page and try again.</div> : !diff || totalChanges === 0 ? <div className="flex flex-col items-center rounded-lg border border-dashed py-14 text-center"><Check className="mb-3 h-8 w-8 text-emerald-600" /><p className="font-medium">Draft matches Live</p><p className="mt-1 text-sm text-muted-foreground">There are no catalog changes waiting to be published.</p></div> : <div className="space-y-3"><div className="grid gap-3 sm:grid-cols-5"><div className="rounded-lg bg-rose-50 p-3"><p className="text-xs text-rose-700">Price changes</p><p className="font-mono text-xl font-semibold text-rose-900">{priceChanges.length}</p></div><div className="rounded-lg bg-violet-50 p-3"><p className="text-xs text-violet-700">Image changes</p><p className="font-mono text-xl font-semibold text-violet-900">{imageChangeCount}</p></div><div className="rounded-lg bg-sky-50 p-3"><p className="text-xs text-sky-700">Added</p><p className="font-mono text-xl font-semibold text-sky-900">{diff.added.length}</p></div><div className="rounded-lg bg-slate-100 p-3"><p className="text-xs text-slate-600">Removed</p><p className="font-mono text-xl font-semibold">{diff.removed.length}</p></div><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Unchanged</p><p className="font-mono text-xl font-semibold">{diff.unchangedCount}</p></div></div>{priceChanges.length > 0 && <div className="rounded border bg-amber-50/60 p-3 text-sm text-amber-950"><AlertTriangle className="mr-2 inline h-4 w-4" />Rows with a 25% or larger movement are flagged. Check the Sheet for mistyped rates before publishing.</div>}<DiffSection title="Changed prices" rows={priceChanges.filter(r => (r.changePct || 0) >= 0)} kind="up" /><DiffSection title="Changed prices" rows={priceChanges.filter(r => (r.changePct || 0) < 0)} kind="down" /><DiffSection title="Changed product images" rows={imageOnlyChanges} kind="image" /><DiffSection title="New catalog items" rows={diff.added} kind="added" /><DiffSection title="Removed from Draft" rows={diff.removed} kind="removed" /></div>}</CardContent></Card>
         </TabsContent>
         <TabsContent value="versions" className="pt-5"><Card><CardHeader><CardTitle>Frozen snapshots</CardTitle><CardDescription>One version is Live at a time. Each snapshot keeps quotations safe from future catalog edits, and can be opened to see exactly what it holds.</CardDescription></CardHeader><CardContent className="p-0">{versions.isLoading ? <div className="space-y-3 p-6"><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div> : !versions.data?.filter(v => v.status !== "draft").length ? <div className="p-12 text-center text-sm text-muted-foreground">No pricing versions yet. Review your Draft and publish the first one.</div> : <div className="divide-y">{versions.data.filter(v => v.status !== "draft").map(v => <div key={v.id} className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between" data-testid={`version-row-${v.versionNumber}`}><div className="flex items-start gap-3"><div className={`mt-1 rounded-full p-2 ${v.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}><LockKeyhole className="h-4 w-4" /></div><div><div className="flex items-center gap-2 font-semibold">Version {v.versionNumber} {v.name && <span className="font-normal text-muted-foreground">· {v.name}</span>}<Badge variant={v.status === "active" ? "default" : "secondary"}>{v.status === "active" ? "Live" : v.status}</Badge></div><p className="text-sm text-muted-foreground">{v.actualItemCount.toLocaleString()} items · {v.projectCount} projects · {v.publishedAt ? `published ${date(v.publishedAt)}` : `created ${date(v.createdAt)}`}</p></div></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setViewing(v)} data-testid={`button-view-${v.versionNumber}`}><Eye className="mr-2 h-3.5 w-3.5" />View prices</Button>{v.status !== "active" && <Button variant="outline" size="sm" onClick={() => setRevertTarget(v)} data-testid={`button-revert-${v.versionNumber}`}><RotateCcw className="mr-2 h-3.5 w-3.5" />Make this live again</Button>}</div></div>)}</div>}</CardContent></Card></TabsContent>
         <TabsContent value="wiring" className="space-y-5 pt-5"><Card><CardHeader><CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-primary" />Google Sheet tabs</CardTitle><CardDescription>These tabs are wired to the catalog sync. Disabled tabs are intentionally excluded and will not affect the Draft.</CardDescription></CardHeader><CardContent className="p-0">{sheetTabs.isLoading ? <div className="space-y-3 p-6"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div> : !sheetTabs.data?.length ? <div className="p-10 text-center text-sm text-muted-foreground">No Sheet tabs configured.</div> : <div className="divide-y">{sheetTabs.data.map(t => <div className={`flex items-center justify-between gap-4 px-5 py-4 ${!t.enabled ? "bg-muted/60 opacity-70" : ""}`} key={t.sheetTabId} data-testid={`sheet-tab-${t.sheetTabId}`}><div className="flex items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${t.enabled ? "bg-emerald-500" : "bg-slate-400"}`} /><div><p className="font-medium">{t.tabTitle} {!t.enabled && <Badge variant="outline" className="ml-2">Disabled · stale duplicate</Badge>}</p><p className="text-xs text-muted-foreground">{t.categoryName} · prefix <span className="font-mono">{t.itemCodePrefix}</span> · {t.layout}</p></div></div><span className="text-xs text-muted-foreground">{t.enabled ? "Syncs to Draft" : "Not synced"}</span></div>)}</div>}</CardContent></Card>
@@ -322,6 +384,100 @@ export default function PricingVersions() {
 
     <VersionViewer version={viewing} onClose={() => setViewing(null)} />
 
+    <Dialog open={newProductOpen} onOpenChange={open => {
+      setNewProductOpen(open);
+      if (!open && !addProduct.isPending) {
+        setNewProductTabId(null);
+        setNewProductCode("");
+        setNewProductCells({});
+        setNewProductPrices({});
+      }
+    }}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><PackagePlus className="h-5 w-5 text-primary" />Add New Product</DialogTitle>
+          <DialogDescription>
+            Creates a brand-new item only in the versions you select. Existing products, prices, and quotations are not edited.
+          </DialogDescription>
+        </DialogHeader>
+        {newProductOptions.isLoading ? <div className="space-y-3 py-4"><Skeleton className="h-10 w-full" /><Skeleton className="h-40 w-full" /></div>
+          : newProductOptions.isError ? <div className="rounded border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">Could not load the Sheet structure. Close this window and try again.</div>
+          : <div className="space-y-6">
+            <section className="space-y-3">
+              <div>
+                <Label htmlFor="new-product-tab">Destination catalog tab</Label>
+                <select
+                  id="new-product-tab"
+                  className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  value={newProductTabId ?? ""}
+                  onChange={event => {
+                    setNewProductTabId(Number(event.target.value));
+                    setNewProductCells({});
+                    setNewProductCode("");
+                  }}
+                  data-testid="select-new-product-tab"
+                >
+                  {(newProductOptions.data?.tabs || []).map(productTab => <option key={productTab.sheetTabId} value={productTab.sheetTabId}>{productTab.categoryName} · {productTab.tabTitle}</option>)}
+                </select>
+              </div>
+              {selectedProductTab && <div className="rounded border bg-muted/30 p-4">
+                <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+                  <div><p className="font-medium">{selectedProductTab.categoryName}</p><p className="text-xs text-muted-foreground">Fields match the live Sheet headers and columns exactly.</p></div>
+                  <div className="w-full sm:w-48"><Label htmlFor="new-product-code">Item Code</Label><Input id="new-product-code" value={newProductCode} onChange={event => setNewProductCode(event.target.value.toUpperCase())} placeholder={`${selectedProductTab.itemCodePrefix}-0000 (auto if blank)`} data-testid="input-new-product-code" /></div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {selectedProductTab.headers.map(field => {
+                    const isDescription = field.index === 8;
+                    const isImage = field.label.toLowerCase().includes("image") || field.label.toLowerCase().includes("imgae");
+                    return <div key={field.index} className={isDescription ? "md:col-span-2" : ""}>
+                      <Label htmlFor={`new-product-cell-${field.index}`}>{field.column} · {field.label}{isDescription ? " *" : ""}</Label>
+                      {isDescription
+                        ? <textarea id={`new-product-cell-${field.index}`} className="mt-1 min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" value={newProductCells[field.index] || ""} onChange={event => setNewProductCells(current => ({ ...current, [field.index]: event.target.value }))} data-testid={`input-new-product-cell-${field.index}`} />
+                        : <Input id={`new-product-cell-${field.index}`} className="mt-1" value={newProductCells[field.index] || ""} onChange={event => setNewProductCells(current => ({ ...current, [field.index]: event.target.value }))} placeholder={isImage ? "Public HTTPS Drive or ImgVision link" : undefined} data-testid={`input-new-product-cell-${field.index}`} />}
+                    </div>;
+                  })}
+                </div>
+              </div>}
+            </section>
+            <section className="space-y-3">
+              <div><p className="font-medium">Versions and prices</p><p className="text-sm text-muted-foreground">Tick only the snapshots that should receive this product, then enter that version’s price.</p></div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {(newProductOptions.data?.versions || []).map(version => {
+                  const checked = newProductPrices[version.id] !== undefined;
+                  return <div key={version.id} className={`rounded border p-3 ${checked ? "border-primary bg-primary/5" : ""}`} data-testid={`new-product-version-${version.versionNumber}`}>
+                    <div className="flex items-start gap-3">
+                      <Checkbox checked={checked} onCheckedChange={value => setNewProductPrices(current => {
+                        const next = { ...current };
+                        if (value === true) next[version.id] = "";
+                        else delete next[version.id];
+                        return next;
+                      })} data-testid={`checkbox-new-product-version-${version.versionNumber}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2"><span className="font-medium">Version {version.versionNumber} · {version.name}</span><Badge variant={version.status === "active" ? "default" : "secondary"}>{version.status}</Badge></div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{version.itemCount.toLocaleString()} stored items</p>
+                        {checked && <div className="mt-3"><Label htmlFor={`new-product-price-${version.id}`}>{selectedProductTab?.priceColumn.label || "Price"} *</Label><Input id={`new-product-price-${version.id}`} type="number" min="0" step="0.01" value={newProductPrices[version.id]} onChange={event => setNewProductPrices(current => ({ ...current, [version.id]: event.target.value }))} placeholder="0.00" data-testid={`input-new-product-price-${version.versionNumber}`} /></div>}
+                      </div>
+                    </div>
+                  </div>;
+                })}
+              </div>
+              {selectedDraft && <div className="rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">Because Draft is selected, this product will also be appended as one new row to <strong>{selectedProductTab?.tabTitle}</strong>. The disabled legacy Services tab is never available to this feature.</div>}
+            </section>
+          </div>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setNewProductOpen(false)} disabled={addProduct.isPending}>Cancel</Button>
+          <Button
+            onClick={() => addProduct.mutate()}
+            disabled={addProduct.isPending || !selectedProductTab || !newProductCells[8]?.trim() || selectedProductDestinations.length === 0 || selectedProductDestinations.some(destination => !Number.isFinite(destination.price))}
+            data-testid="button-save-new-product"
+          >
+            {addProduct.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Add to {selectedProductDestinations.length || 0} version{selectedProductDestinations.length === 1 ? "" : "s"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <Dialog open={syncOpen} onOpenChange={open => { setSyncOpen(open); if (!open) setSelectedGids(null); }}>
       <DialogContent>
         <DialogHeader>
@@ -359,7 +515,7 @@ export default function PricingVersions() {
         {/* The Draft accumulates between publishes, so state plainly what is about to go
             live and who put it there — including syncs this admin may not have run. */}
         <div className="rounded border bg-muted/40 p-3 text-sm" data-testid="publish-summary">
-          <p><strong>{totalChanges}</strong> catalog change{totalChanges === 1 ? "" : "s"} will take effect: {diff?.changed.length ?? 0} price change{(diff?.changed.length ?? 0) === 1 ? "" : "s"}, {diff?.added.length ?? 0} added, {diff?.removed.length ?? 0} removed.</p>
+          <p><strong>{totalChanges}</strong> catalog change{totalChanges === 1 ? "" : "s"} will take effect: {priceChanges.length} price change{priceChanges.length === 1 ? "" : "s"}, {imageChangeCount} image change{imageChangeCount === 1 ? "" : "s"}, {diff?.added.length ?? 0} added, {diff?.removed.length ?? 0} removed.</p>
           {draftStatus.data?.lastSync && <p className="mt-1 text-muted-foreground">Draft last synced {dateTime(draftStatus.data.lastSync.completedAt || draftStatus.data.lastSync.startedAt)} by {draftStatus.data.lastSync.syncedBy || "an admin"}.</p>}
           {draftStatus.data?.lastSync && draftStatus.data.lastSync.errorCount > 0 && <p className="mt-1 text-amber-800">That sync reported {draftStatus.data.lastSync.errorCount} error{draftStatus.data.lastSync.errorCount === 1 ? "" : "s"}.</p>}
           <p className="mt-1 text-muted-foreground">Once published, these prices are frozen and cannot be edited.</p>
@@ -385,7 +541,7 @@ export default function PricingVersions() {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="rounded border bg-muted/40 p-3 text-sm" data-testid="update-live-summary">
-          <p><strong>{totalChanges}</strong> catalog change{totalChanges === 1 ? "" : "s"}: {diff?.changed.length ?? 0} price change{(diff?.changed.length ?? 0) === 1 ? "" : "s"}, {diff?.added.length ?? 0} added, {diff?.removed.length ?? 0} removed.</p>
+          <p><strong>{totalChanges}</strong> catalog change{totalChanges === 1 ? "" : "s"}: {priceChanges.length} price change{priceChanges.length === 1 ? "" : "s"}, {imageChangeCount} image change{imageChangeCount === 1 ? "" : "s"}, {diff?.added.length ?? 0} added, {diff?.removed.length ?? 0} removed.</p>
           <p className="mt-1 text-emerald-800">All {live?.projectCount ?? 0} projects on this price list can use the new items straight away — no need to recreate a quotation.</p>
           <p className="mt-1 text-muted-foreground">Prices already saved on existing quotations do not move. Only lines added from now on use the new prices.</p>
           {(diff?.removed.length ?? 0) > 0 && <p className="mt-1 text-amber-800">{diff?.removed.length} item{(diff?.removed.length ?? 0) === 1 ? "" : "s"} will no longer be available to anyone on this price list.</p>}

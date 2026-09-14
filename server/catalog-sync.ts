@@ -9,7 +9,7 @@ import {
 } from '../shared/schema';
 import { getUncachableGoogleSheetClient, parseMultiSelectCell, parseNumericValue } from './google-sheets';
 import { eq, and, or, isNull, inArray, sql } from 'drizzle-orm';
-import { getDraftVersion, recordAudit, assertVersionMutable, ITEM_CODE_PAD } from './pricing-versions';
+import { getDraftVersion, recordAudit, assertVersionMutable, seedSheetTabs, ITEM_CODE_PAD } from './pricing-versions';
 import { ITEM_CODE_COLUMN_INDEX } from './item-codes';
 
 interface SyncError {
@@ -24,6 +24,38 @@ interface SyncError {
  */
 export function normalizeCategory(category: string): string {
   return category.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Converts supported public image links into a URL an <img> element can load.
+ * Images pasted directly into a cell are not exposed by the Sheets values API, so
+ * Admins must use a URL in the image column. The host allowlist also prevents a Sheet
+ * editor from making the PDF renderer request arbitrary/internal URLs.
+ */
+export function normalizeProductImageUrl(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:') return null;
+
+  if (parsed.hostname === 'drive.google.com') {
+    const pathMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/);
+    const fileId = pathMatch?.[1] || parsed.searchParams.get('id');
+    if (fileId) {
+      return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1200`;
+    }
+    return null;
+  }
+
+  if (parsed.hostname === 'd.imgvision.net') return parsed.toString();
+  return null;
 }
 
 export interface SyncResult {
@@ -73,6 +105,7 @@ export async function acquireCatalogLock(tx: any): Promise<void> {
  *   services_stone  — price in column J
  *   accessories     — price in column K (column J is a unit, not a price)
  *   xpress_xpand    — price in column J, with markup/margin/selling price in K/L/M
+ *   xclusive        — final selling price in column J
  *
  * Handles deliberately uses xpress_xpand: its price is in column J and columns K-M are
  * empty, which is exactly what that mapping expects.
@@ -81,13 +114,20 @@ export function parseTabRows(
   tab: CatalogSheetTab,
   liveTitle: string,
   rows: any[][],
-  ctx: { syncLogId: string; pricingVersionId: string }
+  ctx: { syncLogId: string | null; pricingVersionId: string },
+  headers: any[] = []
 ): { items: InsertCatalogItem[]; errors: SyncError[] } {
   const items: InsertCatalogItem[] = [];
   const errors: SyncError[] = [];
   const seenCodes = new Map<string, number>();
 
   const layout = tab.layout;
+  const imageColumnIndex = headers.findIndex((header) => {
+    const normalized = String(header ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+    return normalized.includes('image') || normalized.includes('imgae');
+  });
+  const normalizedHeaders = headers.map((header) => String(header ?? '').toLowerCase().replace(/\s+/g, ' ').trim());
+  const headerIndex = (...names: string[]) => normalizedHeaders.findIndex((header) => names.includes(header));
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex];
@@ -100,7 +140,64 @@ export function parseTabRows(
       let materialType, brand, description;
       let rate, markup, markupValue, sellingPrice;
 
-      if (layout === 'lights') {
+      let furnitureFields: Record<string, unknown> | null = null;
+      if (layout === 'furniture') {
+        const valueAt = (...names: string[]) => {
+          const index = headerIndex(...names);
+          return index >= 0 ? row[index] : null;
+        };
+        const activeValue = valueAt('active');
+        const isActive = activeValue === true || String(activeValue ?? '').trim().toLowerCase() === 'true';
+        if (!isActive) continue;
+        projectType = valueAt('project type');
+        brand = valueAt('brand');
+        const workType = valueAt('work type');
+        section = workType;
+        const applicableArea = valueAt('apllicable area', 'applicable area');
+        const productCategory = valueAt('category');
+        const subCategory = valueAt('sub category');
+        const finishType = valueAt('finish type');
+        const finishMaterial = valueAt('finish material');
+        description = valueAt('description');
+        const dimension = valueAt('dimension');
+        const isChecked = (value: unknown) => value === true || String(value ?? '').trim().toLowerCase() === 'true';
+        const requiresLength = isChecked(valueAt('requires length'));
+        const requiresHeight = isChecked(valueAt('requires height'));
+        const requiresDepth = isChecked(valueAt('requires depth'));
+        unitType = valueAt('unit');
+        sellingPrice = valueAt('mrp');
+        panelType = applicableArea;
+        materialType = finishMaterial;
+        roomTypeRaw = null;
+        rate = sellingPrice;
+        markup = undefined;
+        markupValue = undefined;
+        furnitureFields = { applicableArea, productCategory, subCategory, finishType, dimension, requiresLength, requiresHeight, requiresDepth, isActive };
+      } else if (layout === 'appliances') {
+        // Appliances is intentionally header-driven. Its master sheet is maintained by
+        // business users, so column placement must never decide a quotation's item,
+        // price, or image.
+        const valueAt = (...names: string[]) => {
+          const index = headerIndex(...names);
+          return index >= 0 ? row[index] : null;
+        };
+        projectType = valueAt('project type');
+        brand = valueAt('brand');
+        section = valueAt('work type');
+        const productCategory = valueAt('category');
+        const subCategory = valueAt('sub category');
+        const dimension = valueAt('dimension');
+        description = valueAt('description');
+        unitType = valueAt('unit');
+        sellingPrice = valueAt('mrp');
+        panelType = productCategory;
+        materialType = null;
+        roomTypeRaw = null;
+        rate = sellingPrice;
+        markup = undefined;
+        markupValue = undefined;
+        furnitureFields = { productCategory, subCategory, dimension, isActive: true };
+      } else if (layout === 'lights') {
         let workType, lightsCategory, applicableArea, units, images;
         [
           projectType,      // A - Project Type
@@ -133,6 +230,22 @@ export function parseTabRows(
           brand,            // H
           description,      // I
           sellingPrice,     // J - the price
+        ] = row;
+        rate = sellingPrice;
+        markup = undefined;
+        markupValue = undefined;
+      } else if (layout === 'xclusive') {
+        [
+          projectType,      // A
+          section,          // B
+          roomTypeRaw,      // C
+          unitType,         // D
+          panelType,        // E
+          itemCategory,     // F
+          materialType,     // G
+          brand,            // H
+          description,      // I
+          sellingPrice,     // J - final selling value
         ] = row;
         rate = sellingPrice;
         markup = undefined;
@@ -177,7 +290,9 @@ export function parseTabRows(
       if (!String(description ?? '').trim() && !String(unitType ?? '').trim()) continue;
 
       // ---- Item code: the stable cross-version identity -------------------------
-      const itemCode = String(row[ITEM_CODE_COLUMN_INDEX] ?? '').trim() || null;
+      const itemCode = layout === 'furniture' || layout === 'appliances'
+        ? `${tab.itemCodePrefix}-${String(actualRowNumber - 1).padStart(ITEM_CODE_PAD, '0')}`
+        : String(row[ITEM_CODE_COLUMN_INDEX] ?? '').trim() || null;
       if (!itemCode) {
         errors.push({
           row: actualRowNumber,
@@ -233,12 +348,17 @@ export function parseTabRows(
       const parsedMarkup = parseNumericValue(markup, 0);
       const parsedMargin = parseNumericValue(markupValue, 0);
       const parsedSellingPrice = parseNumericValue(sellingPrice, 0);
+      const rawImageValue = imageColumnIndex >= 0 ? row[imageColumnIndex] : null;
+      const imageUrl = normalizeProductImageUrl(rawImageValue);
 
       const rowWarnings: string[] = [];
-      if (roomTypes.length === 1 && !roomTypes[0]) rowWarnings.push('Room type is empty');
+      if (layout !== 'furniture' && layout !== 'appliances' && roomTypes.length === 1 && !roomTypes[0]) rowWarnings.push('Room type is empty');
       if (roomTypes.length > 1) rowWarnings.push(`Multi-room-type item duplicated for: ${roomTypes.join(', ')}`);
       if (!unitType) rowWarnings.push('Unit type is empty');
       if (!description) rowWarnings.push('Description is empty');
+      if (rawImageValue && !imageUrl) {
+        rowWarnings.push('Image cell must contain a public HTTPS Google Drive or ImgVision image link');
+      }
 
       // One catalog row per room type, so a multi-room item appears under both filters.
       // All copies share the same item code: the code identifies the sheet row.
@@ -268,6 +388,16 @@ export function parseTabRows(
           marginRaw: markupValue != null ? String(markupValue) : null,
           sellingPrice: parsedSellingPrice,
           sellingPriceRaw: sellingPrice != null ? String(sellingPrice) : null,
+          imageUrl,
+          applicableArea: furnitureFields?.applicableArea ? String(furnitureFields.applicableArea) : null,
+          productCategory: furnitureFields?.productCategory ? String(furnitureFields.productCategory) : null,
+          subCategory: furnitureFields?.subCategory ? String(furnitureFields.subCategory) : null,
+          finishType: furnitureFields?.finishType ? String(furnitureFields.finishType) : null,
+          dimension: furnitureFields?.dimension ? String(furnitureFields.dimension) : null,
+          requiresLength: furnitureFields?.requiresLength === true,
+          requiresHeight: furnitureFields?.requiresHeight === true,
+          requiresDepth: furnitureFields?.requiresDepth === true,
+          isActive: furnitureFields?.isActive === false ? false : true,
           materials,
           finishes: brands,
           specifications,
@@ -336,6 +466,11 @@ export async function syncCatalogToDraft(
     throw new Error('No Draft pricing version exists. Initialise pricing versions before syncing.');
   }
 
+  // Pick up newly shipped canonical tabs without changing any existing admin-managed
+  // tab configuration. This also makes a newly published tab available in production
+  // on its first sync without a separate data migration.
+  await seedSheetTabs();
+
   const configuredTabs = await db
     .select()
     .from(catalogSheetTabs)
@@ -382,9 +517,15 @@ export async function syncCatalogToDraft(
     try {
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `'${liveTitle}'!A2:N`,
+        // A-M keep their established positional pricing meanings and N is Item Code.
+        // Reading through Z lets an Admin append/move an Image column without a code
+        // change; header detection above finds it without affecting those positions.
+        range: `'${liveTitle}'!A1:Z`,
+        // Preserve source prices precisely. The default formatted value can hide fractional
+        // currency (for example, 34121.4 displays as 34121 in an integer-formatted cell).
+        valueRenderOption: 'UNFORMATTED_VALUE',
       });
-      const rows = res.data.values || [];
+      const [headers = [], ...rows] = res.data.values || [];
       if (rows.length === 0) {
         errors.push({
           row: 0,
@@ -398,7 +539,7 @@ export async function syncCatalogToDraft(
       const parsed = parseTabRows(tab, liveTitle, rows, {
         syncLogId: syncLog.id,
         pricingVersionId: draft.id,
-      });
+      }, headers);
       allItems.push(...parsed.items);
       errors.push(...parsed.errors);
       fetchedGids.push(tab.sheetTabId);
@@ -524,6 +665,7 @@ export async function syncCatalogToDraft(
       status: errorCount > 0 ? 'partial' : 'success',
       xpressCount: categoryCounts['DeX - Xpress'] ?? 0,
       xpandCount: categoryCounts['DeX - Xpand'] ?? 0,
+      xclusiveCount: categoryCounts['DeX - Xclusive'] ?? 0,
       accessoriesCount: categoryCounts['DeX - Accessories'] ?? 0,
       servicesCount: categoryCounts['DeX - Services'] ?? 0,
       lightsCount: categoryCounts['DeX - Lights'] ?? 0,

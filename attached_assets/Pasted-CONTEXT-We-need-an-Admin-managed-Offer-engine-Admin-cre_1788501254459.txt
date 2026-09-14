@@ -1,0 +1,15 @@
+CONTEXT: We need an Admin-managed Offer engine. Admin creates an offer with a name, validity dates, offer type (percentage range, cash discount, or product offer), and eligibility criteria (min/max Woodwork value pre-GST). If a project falls within that criteria, the offer becomes visible to the team, who must manually choose to apply it — it never applies automatically.
+
+OBJECTIVE:
+1. Admin Portal: "Create Offer" screen — Offer Name, Validity From/To, Offer Type (multi-selectable: Percentage range with min/max, Cash Discount, Product Offer), eligibility (min/max Woodwork value pre-GST).
+2. If Offer Type = Percentage range: team can pick any % within Admin's defined min-max when applying it to a quote.
+3. If Offer Type = Product Offer: Admin enters Product Description, Size, and Cost. This creates a new selectable item under a brand-new category called "Offer Product" (same level as Woodwork, Accessories, Services), which the team can add to a quote like any other line item.
+4. Offers only become visible on a quote when that project's Woodwork value pre-GST falls within the defined min/max — but the team must manually apply it, never automatic.
+5. Once validity ends, the offer stops appearing to the team, but Admin can still rename or reactivate ("Live") it anytime from Admin Portal.
+6. An offer can only be edited by Admin before it has been used in any live quote — once applied to a quote, it becomes locked from editing.
+
+SCOPE: New Admin "Create Offer" screen, a new "Offer Product" category in the quote-building flow, and the eligibility-check + manual-apply logic. Do not touch existing discount logic used for other categories (Woodwork, Accessories, etc.) — those must keep working exactly as before.
+
+CONSTRAINTS: Do not auto-apply any offer under any condition. Do not allow editing an offer once it's been used in at least one live quote — lock it instead, and tell me clearly if you need a way to check "has this offer been used anywhere" before allowing edits.
+
+DONE WHEN: Admin creates a Product Offer, it appears as a new selectable item under "Offer Product" category for eligible projects. Admin creates a % range offer, team can pick any value within that range when manually applying it to a project that meets the Woodwork value criteria. Ending the validity date hides the offer from the team but Admin can still see/edit/relive it. Attempting to edit an offer already used in a live quote is blocked.

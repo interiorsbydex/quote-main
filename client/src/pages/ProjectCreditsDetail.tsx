@@ -18,8 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Project, Milestone, CreditTransaction, ProjectCredits } from "@/lib/types";
-import { CREDIT_REQUEST_TYPES, MILESTONE_TYPES, CREDIT_CAPS } from "@shared/schema";
-import type { CreditRequestType, MilestoneType } from "@shared/schema";
+import { CREDIT_REQUEST_TYPES, CREDIT_CAPS } from "@shared/schema";
+import type { CreditRequestType } from "@shared/schema";
 import dexLogo from "@/assets/dex-logo.png";
 
 interface CreditRequest {
@@ -50,6 +50,14 @@ interface ProjectCreditsDetailProps {
   params: { projectId: string };
 }
 
+interface MilestoneStage {
+  id: string;
+  key: string;
+  name: string;
+  creditAmount: number;
+  category: "mandatory" | "additional";
+}
+
 export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailProps) {
   const projectId = params.projectId;
   const { toast } = useToast();
@@ -63,7 +71,7 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
   const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [createMilestoneOpen, setCreateMilestoneOpen] = useState(false);
-  const [milestoneType, setMilestoneType] = useState<MilestoneType | "">("");
+  const [milestoneType, setMilestoneType] = useState("");
   const [milestoneRoomId, setMilestoneRoomId] = useState("");
   const [milestoneDescription, setMilestoneDescription] = useState("");
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -115,6 +123,10 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
       return res.json();
     },
     enabled: !!projectId,
+  });
+
+  const { data: milestoneStages = [] } = useQuery<MilestoneStage[]>({
+    queryKey: ["/api/milestone-stages"],
   });
 
   const { data: creditRequests = [] } = useQuery<CreditRequest[]>({
@@ -314,8 +326,8 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'milestones'] });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/credits-dashboard'] });
-      const typeInfo = milestoneType ? MILESTONE_TYPES[milestoneType as MilestoneType] : null;
-      toast({ title: "Milestone Created", description: `Created milestone "${typeInfo?.label || milestoneType}"` });
+      const typeInfo = milestoneStages.find((stage) => stage.key === milestoneType);
+      toast({ title: "Milestone Created", description: `Created milestone "${typeInfo?.name || milestoneType}"` });
       setCreateMilestoneOpen(false);
       setMilestoneType("");
       setMilestoneRoomId("");
@@ -402,7 +414,7 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
     .filter((m) => m.milestoneType && ['pending', 'submitted', 'approved'].includes(m.status))
     .map((m) => m.milestoneType);
 
-  const selectedMilestoneTypeInfo = milestoneType ? MILESTONE_TYPES[milestoneType as MilestoneType] : null;
+  const selectedMilestoneTypeInfo = milestoneStages.find((stage) => stage.key === milestoneType);
   const isAdditionalMilestone = selectedMilestoneTypeInfo?.category === 'additional';
 
   const selectedRequestTypeInfo = requestType ? CREDIT_REQUEST_TYPES[requestType as CreditRequestType] : null;
@@ -820,7 +832,7 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
                     <div className="space-y-4">
                       <div>
                         <Label htmlFor="milestone-type">Milestone Type</Label>
-                        <Select value={milestoneType} onValueChange={(val) => { setMilestoneType(val as MilestoneType); setMilestoneRoomId(""); }}>
+                        <Select value={milestoneType} onValueChange={(val) => { setMilestoneType(val); setMilestoneRoomId(""); }}>
                           <SelectTrigger data-testid="select-milestone-type">
                             <SelectValue placeholder="Select milestone type" />
                           </SelectTrigger>
@@ -828,9 +840,10 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
                             <SelectItem value="__mandatory_header" disabled>
                               Mandatory Milestones
                             </SelectItem>
-                            {(Object.entries(MILESTONE_TYPES) as [MilestoneType, typeof MILESTONE_TYPES[MilestoneType]][])
-                              .filter(([, info]) => info.category === 'mandatory')
-                              .map(([key, info]) => {
+                            {milestoneStages
+                              .filter((stage) => stage.category === 'mandatory')
+                              .map((stage) => {
+                                const key = stage.key;
                                 const isUsed = usedMandatoryTypes.includes(key);
                                 return (
                                   <SelectItem
@@ -839,18 +852,18 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
                                     disabled={isUsed}
                                     data-testid={`option-milestone-type-${key}`}
                                   >
-                                    {info.label} ({Math.round(info.amount).toLocaleString()} Credits){isUsed ? ' (Already used)' : ''}
+                                    {stage.name} ({Math.round(stage.creditAmount).toLocaleString()} Credits){isUsed ? ' (Already used)' : ''}
                                   </SelectItem>
                                 );
                               })}
                             <SelectItem value="__additional_header" disabled>
                               Additional Milestones
                             </SelectItem>
-                            {(Object.entries(MILESTONE_TYPES) as [MilestoneType, typeof MILESTONE_TYPES[MilestoneType]][])
-                              .filter(([, info]) => info.category === 'additional')
-                              .map(([key, info]) => (
-                                <SelectItem key={key} value={key} data-testid={`option-milestone-type-${key}`}>
-                                  {info.label} ({Math.round(info.amount).toLocaleString()} Credits)
+                            {milestoneStages
+                              .filter((stage) => stage.category === 'additional')
+                              .map((stage) => (
+                                <SelectItem key={stage.key} value={stage.key} data-testid={`option-milestone-type-${stage.key}`}>
+                                  {stage.name} ({Math.round(stage.creditAmount).toLocaleString()} Credits)
                                 </SelectItem>
                               ))}
                           </SelectContent>
@@ -861,7 +874,7 @@ export default function ProjectCreditsDetail({ params }: ProjectCreditsDetailPro
                           <Label>Credit Amount</Label>
                           <Input
                             readOnly
-                            value={`${Math.round(selectedMilestoneTypeInfo.amount).toLocaleString()} Credits`}
+                            value={`${Math.round(selectedMilestoneTypeInfo.creditAmount).toLocaleString()} Credits`}
                             className="bg-muted"
                             data-testid="input-milestone-amount"
                           />

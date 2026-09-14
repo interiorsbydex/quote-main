@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { fetchCatalogFromSheets, getCachedCatalog, getMaterialSpecs, clearCache, fetchGQSheet, warmCacheFromDatabase, getCatalogForVersion, getCatalogForProject, clearVersionCatalogCache, clearProjectExceptionCache } from "./google-sheets";
-import { syncCatalogToDraft, getSyncLogs } from "./catalog-sync";
+import { syncCatalogToDraft, getSyncLogs, normalizeProductImageUrl } from "./catalog-sync";
 import {
   getActiveVersion,
   getDraftVersion,
@@ -22,14 +22,15 @@ import {
 } from "./pricing-versions";
 import { isInstantSyncEnabled, setInstantSyncEnabled } from "./app-settings";
 import { previewItemCodes, generateItemCodes } from "./item-codes";
+import { addNewProduct, getNewProductOptions } from "./new-products";
 import { testGQSheet } from "./quotation-comparison";
 import { createGQ1Project } from "./create-gq1-project";
 import { db, pool } from "./db";
-import { catalogItems, catalogSyncLogs, projectCredits, milestones, creditTransactions, creditRequests, walletFundingEntries, projects, users } from "@shared/schema";
-import { insertProjectSchema, insertRoomSchema, insertLineItemSchema, insertMilestoneSchema } from "@shared/schema";
+import { catalogItems, catalogSyncLogs, projectCredits, milestones, milestoneStages, creditTransactions, creditRequests, walletFundingEntries, projects, users, offers, projectOffers } from "@shared/schema";
+import { insertProjectSchema, insertRoomSchema, insertRoomSubcategorySchema, insertLineItemSchema, insertMilestoneSchema } from "@shared/schema";
 import { CREDIT_REQUEST_TYPES, CREDIT_CAPS, MILESTONE_TYPES, PAYMENT_TIERS, RETENTION_AMOUNT } from "@shared/schema";
-import { computeQuotationTotals, computePaymentSchedule } from "@shared/calculations";
-import type { CreditRequestType, MilestoneType } from "@shared/schema";
+import { computeQuotationTotals, computePaymentSchedule, computeRoomSubtotalDisplay } from "@shared/calculations";
+import type { CreditRequestType } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, requireAuth, requireAdmin } from "./auth";
 import { eq, desc, like, and, or, sql } from "drizzle-orm";
@@ -108,7 +109,114 @@ const logoUpload = multer({
   }
 });
 
-// Authorization helper: Check if user can access a project based on role hierarchy
+const ASSIGNMENT_ROLES = new Set(["tl", "bl", "dm"]);
+const USER_ROLES = new Set(["super_admin", "admin", "user", "tl", "bl", "dm"]);
+const TL_COHORTS = new Set(["PD", "DTL"]);
+const offerInputSchema = z.object({
+  name: z.string().trim().min(1, "Offer name is required").max(160),
+  offerType: z.enum(["percentage", "cash"]),
+  percentageValue: z.number().min(0).max(100).nullable().optional(),
+  cashValue: z.number().min(0).nullable().optional(),
+  minWoodworkValue: z.number().min(0).default(0),
+  maxWoodworkValue: z.number().min(0).nullable().optional(),
+  isActive: z.boolean().optional(),
+}).superRefine((offer, ctx) => {
+  if (offer.offerType === "percentage" && !(offer.percentageValue && offer.percentageValue > 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["percentageValue"], message: "Enter a percentage greater than zero" });
+  }
+  if (offer.offerType === "cash" && !(offer.cashValue && offer.cashValue > 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cashValue"], message: "Enter a cash amount greater than zero" });
+  }
+  if (offer.maxWoodworkValue !== null && offer.maxWoodworkValue !== undefined && offer.maxWoodworkValue < offer.minWoodworkValue) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["maxWoodworkValue"], message: "Maximum woodwork value must be at least the minimum" });
+  }
+});
+
+async function getProjectsVisibleToUser(userId: string, role: string) {
+  if (role === "super_admin" || role === "admin") return storage.getAllProjects();
+  if (ASSIGNMENT_ROLES.has(role)) {
+    return storage.getProjectsAssignedToRole(userId, role as "tl" | "bl" | "dm");
+  }
+  return storage.getProjectsByUser(userId);
+}
+
+async function getOfferContext(projectId: string) {
+  const project = await storage.getProject(projectId);
+  if (!project) return null;
+
+  const lineItems = await storage.getLineItemsByProject(projectId);
+  // Eligibility deliberately uses the full Woodwork value before GST or any
+  // existing project discount, as requested for offer thresholds.
+  const woodworkValue = computeQuotationTotals(lineItems, project.markup || 0, project.discount || 0).woodworksSubtotal;
+  const [activeOffers, selectedOffers] = await Promise.all([
+    db.select().from(offers).where(eq(offers.isActive, true)).orderBy(desc(offers.createdAt)),
+    db.select().from(projectOffers).where(eq(projectOffers.projectId, projectId)),
+  ]);
+
+  const isEligible = (offer: {
+    minWoodworkValue: number;
+    maxWoodworkValue: number | null;
+  }) => woodworkValue >= offer.minWoodworkValue &&
+    (offer.maxWoodworkValue === null || woodworkValue <= offer.maxWoodworkValue);
+
+  const selectedByOfferId = new Map(selectedOffers.map((offer) => [offer.offerId, offer]));
+  const visibleOffers = activeOffers.map((offer) => {
+    const selected = selectedByOfferId.get(offer.id);
+    return {
+      id: selected?.id || offer.id,
+      offerId: offer.id,
+      offerName: selected?.offerName || offer.name,
+      productCategory: selected?.productCategory || offer.productCategory,
+      offerType: selected?.offerType || offer.offerType,
+      percentageValue: selected?.percentageValue ?? offer.percentageValue,
+      cashValue: selected?.cashValue ?? offer.cashValue,
+      minWoodworkValue: selected?.minWoodworkValue ?? offer.minWoodworkValue,
+      maxWoodworkValue: selected?.maxWoodworkValue ?? offer.maxWoodworkValue,
+      isActive: offer.isActive,
+      isApplied: !!selected,
+      isLocked: selected?.isLocked || false,
+      isStillEligible: isEligible(selected || offer),
+    };
+  });
+
+  // A previously selected inactive offer must remain visible in a draft so the
+  // designer can remove it; it is not offered to newly eligible projects.
+  for (const selected of selectedOffers) {
+    if (activeOffers.some((offer) => offer.id === selected.offerId)) continue;
+    visibleOffers.push({
+      id: selected.id,
+      offerId: selected.offerId,
+      offerName: selected.offerName,
+      productCategory: selected.productCategory,
+      offerType: selected.offerType,
+      percentageValue: selected.percentageValue,
+      cashValue: selected.cashValue,
+      minWoodworkValue: selected.minWoodworkValue,
+      maxWoodworkValue: selected.maxWoodworkValue,
+      isActive: false,
+      isApplied: true,
+      isLocked: selected.isLocked,
+      isStillEligible: isEligible(selected),
+    });
+  }
+
+  return { project, woodworkValue, offers: visibleOffers, selectedOffers, isEligible };
+}
+
+async function ensureMilestoneStages() {
+  await db.insert(milestoneStages).values(
+    Object.entries(MILESTONE_TYPES).map(([key, stage]) => ({
+      key,
+      name: stage.label,
+      creditAmount: stage.amount,
+      category: stage.category,
+    })),
+  ).onConflictDoNothing({ target: milestoneStages.key });
+}
+
+// Authorization helper: Check if a project belongs to the current user based on role hierarchy.
+// Regular representatives are assigned through projects.userId and must never be able
+// to open another representative's quotation by guessing its project ID.
 async function canAccessProject(
   userId: string,
   role: string,
@@ -120,7 +228,11 @@ async function canAccessProject(
   // Super admin and admin can access all projects
   if (role === "super_admin" || role === "admin") return true;
   
-  // Regular user can only access their own projects
+  if (role === "tl") return project.tlId === userId;
+  if (role === "bl") return project.blId === userId;
+  if (role === "dm") return project.dmId === userId;
+
+  // Regular representatives/users can only access their own projects.
   return project.userId === userId;
 }
 
@@ -164,6 +276,24 @@ async function isLineItemProjectFinalized(lineItemId: string): Promise<boolean> 
   const lineItem = await storage.getLineItem(lineItemId);
   if (!lineItem) return false;
   return isProjectFinalized(lineItem.projectId);
+}
+
+// Authorization helper: Check if user can access a room sub-category (via its parent room/project)
+async function canAccessRoomSubcategory(
+  userId: string,
+  role: string,
+  subcategoryId: string
+): Promise<boolean> {
+  const subcategory = await storage.getRoomSubcategory(subcategoryId);
+  if (!subcategory) return false;
+  return canAccessRoom(userId, role, subcategory.roomId);
+}
+
+// Helper: Check if a room sub-category's project is finalized
+async function isRoomSubcategoryProjectFinalized(subcategoryId: string): Promise<boolean> {
+  const subcategory = await storage.getRoomSubcategory(subcategoryId);
+  if (!subcategory) return false;
+  return isRoomProjectFinalized(subcategory.roomId);
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -342,7 +472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           appliedLive = true;
           liveMessage =
-            `${applied.added} item(s) added, ${applied.changed} price(s) changed` +
+            `${applied.added} item(s) added, ${applied.changed} catalog item(s) changed` +
             (applied.removed > 0 ? `, ${applied.removed} removed` : "") + ".";
           clearCache();
           await warmCacheFromDatabase();
@@ -750,6 +880,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/new-products/options", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      res.json(await getNewProductOptions(SPREADSHEET_ID));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to load product options" });
+    }
+  });
+
+  app.post("/api/admin/new-products", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await addNewProduct(SPREADSHEET_ID, {
+        sheetTabId: Number(req.body?.sheetTabId),
+        itemCode: req.body?.itemCode,
+        cells: req.body?.cells || {},
+        destinations: req.body?.destinations || [],
+        performedBy: req.session.userId!,
+      });
+      clearCache();
+      clearVersionCatalogCache();
+      await warmCacheFromDatabase();
+      res.status(201).json({
+        success: true,
+        ...result,
+        message: `${result.itemCode} was added only to the ${result.destinations.length} selected version(s).`,
+      });
+    } catch (error: any) {
+      console.error("Error adding catalog product:", error);
+      res.status(400).json({ error: error.message || "Failed to add the product" });
+    }
+  });
+
   // ---------------------------------------------------------------- sheet tabs
 
   app.get("/api/admin/sheet-tabs", requireAuth, requireAdmin, async (_req, res: Response) => {
@@ -986,24 +1147,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Get all projects for current user based on role hierarchy
   // super_admin: sees all projects
-  // admin: sees all projects (full visibility across all users)
-  // user: sees only own projects
+  // admin: sees all projects; TL/BL/DM: only projects assigned to that role; user: own projects
   app.get("/api/projects", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
       const role = req.session.role || "user";
       
-      let projectsList;
-      if (role === "super_admin" || role === "admin") {
-        projectsList = await storage.getAllProjects();
-      } else {
-        projectsList = await storage.getProjectsByUser(userId);
-      }
+      const projectsList = await getProjectsVisibleToUser(userId, role);
       
       res.json(projectsList);
     } catch (error: any) {
       console.error("Error fetching projects:", error);
       res.status(500).json({ error: error.message || "Failed to fetch projects" });
+    }
+  });
+
+  // People who created or are assigned to the projects visible to this user.
+  // This powers the dashboard's "Created by" filter without exposing the admin user directory.
+  app.get("/api/projects/people", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const visibleProjects = await getProjectsVisibleToUser(req.session.userId!, req.session.role || "user");
+      const relatedUserIds = new Set(
+        visibleProjects.flatMap((project) => [project.userId, project.tlId, project.blId, project.dmId].filter(Boolean))
+      );
+      const allUsers = await storage.getAllUsers();
+      res.json(
+        allUsers
+          .filter((user) => relatedUserIds.has(user.id))
+          .map(({ id, username, firstName, lastName, role, cohort }) => ({ id, username, firstName, lastName, role, cohort }))
+      );
+    } catch (error: any) {
+      console.error("Error fetching project people:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch project people" });
     }
   });
 
@@ -1033,7 +1208,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/projects", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
-      const { clientId, ...restBody } = req.body;
+      const { clientId, tlId: _tlId, blId: _blId, dmId: _dmId, ...restBody } = req.body;
+      const normalizedPid = typeof restBody.pid === "string" ? restBody.pid.trim() : "";
+
+      if (!normalizedPid) {
+        return res.status(400).json({ error: "Project ID (PID) is required" });
+      }
+
+      let clientName = typeof restBody.clientName === "string" ? restBody.clientName.trim() : "";
       
       // If clientId is provided, verify ownership
       if (clientId) {
@@ -1044,12 +1226,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (client.userId !== userId) {
           return res.status(403).json({ error: "Access denied to this client" });
         }
+        clientName = client.name;
       }
       
       const validated = insertProjectSchema.parse({
         ...restBody,
+        pid: normalizedPid,
+        clientName,
         userId: userId,
         clientId: clientId || null,
+        // CRM links may omit projectType. Residential is the initial default, while the
+        // creation dialog still lets the representative change it before saving.
+        projectType: restBody.projectType || "Residential",
       });
 
       // The pricing version is stamped by the server, never accepted from the client:
@@ -1099,7 +1287,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // A project's pricing version is fixed for life: it is what guarantees an already
       // quoted client keeps their prices. Silently drop any attempt to move a project
       // onto a different price list, whether malicious or accidental.
-      const { pricingVersionId, id, userId: _ignoredUserId, createdAt, ...safeUpdates } = req.body || {};
+      const { pricingVersionId, id, userId: _ignoredUserId, createdAt, tlId, blId, dmId, ...safeUpdates } = req.body || {};
+      const requestedAssignments = { tlId, blId, dmId };
+      const isChangingAssignments = Object.values(requestedAssignments).some((value) => value !== undefined);
+      if (isChangingAssignments) {
+        if (role !== "admin" && role !== "super_admin") {
+          return res.status(403).json({ error: "Only administrators can change TL, BL, or DM assignments" });
+        }
+        const allUsers = await storage.getAllUsers();
+        for (const [field, expectedRole] of [["tlId", "tl"], ["blId", "bl"], ["dmId", "dm"]] as const) {
+          const assignment = requestedAssignments[field];
+          if (assignment === undefined) continue;
+          if (assignment !== null && typeof assignment !== "string") {
+            return res.status(400).json({ error: `${field} must be a user ID or N/A` });
+          }
+          if (assignment) {
+            const assignee = allUsers.find((user) => user.id === assignment);
+            if (!assignee || assignee.role !== expectedRole) {
+              return res.status(400).json({ error: `Select a valid ${expectedRole.toUpperCase()} user` });
+            }
+          }
+          safeUpdates[field] = assignment || null;
+        }
+      }
+      if ("pid" in safeUpdates) {
+        const normalizedPid = typeof safeUpdates.pid === "string" ? safeUpdates.pid.trim() : "";
+        if (!normalizedPid) {
+          return res.status(400).json({ error: "Project ID (PID) is required" });
+        }
+        safeUpdates.pid = normalizedPid;
+      }
 
       const project = await storage.updateProject(req.params.id, safeUpdates);
       if (!project) {
@@ -1157,11 +1374,158 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Cannot finalize a quote with no line items" });
       }
       
-      const updatedProject = await storage.updateProject(req.params.id, { status: "Generated" });
+        const offerContext = await getOfferContext(req.params.id);
+        const noLongerEligible = offerContext?.selectedOffers.filter((offer) => !offerContext.isEligible(offer)) || [];
+        if (noLongerEligible.length > 0) {
+          return res.status(400).json({
+            error: `Remove offers that are no longer eligible before finalizing: ${noLongerEligible.map((offer) => offer.offerName).join(", ")}`,
+          });
+        }
+
+        // Applied offers stay editable through the entire draft lifecycle. Lock
+        // their snapshots only in the same transition that generates the quote.
+        const updatedProject = await db.transaction(async (tx) => {
+          if (offerContext?.selectedOffers.length) {
+            await tx.update(projectOffers)
+              .set({ isLocked: true, lockedAt: new Date() })
+              .where(eq(projectOffers.projectId, req.params.id));
+          }
+          const [finalized] = await tx.update(projects)
+            .set({ status: "Generated", updatedAt: new Date() })
+            .where(eq(projects.id, req.params.id))
+            .returning();
+          return finalized;
+        });
       res.json(updatedProject);
     } catch (error: any) {
       console.error("Error finalizing project:", error);
       res.status(500).json({ error: error.message || "Failed to finalize project" });
+    }
+  });
+
+  // ==================== OFFER ENGINE ====================
+
+  app.get("/api/admin/offers", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      res.json(await db.select().from(offers).orderBy(desc(offers.createdAt)));
+    } catch (error: any) {
+      console.error("Error fetching offers:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch offers" });
+    }
+  });
+
+  app.post("/api/admin/offers", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const data = offerInputSchema.parse(req.body);
+      const [offer] = await db.insert(offers).values({
+        ...data,
+        productCategory: "Offer Product",
+        percentageValue: data.offerType === "percentage" ? data.percentageValue : null,
+        cashValue: data.offerType === "cash" ? data.cashValue : null,
+      }).returning();
+      res.status(201).json(offer);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Validation error", details: error.errors });
+      console.error("Error creating offer:", error);
+      res.status(500).json({ error: error.message || "Failed to create offer" });
+    }
+  });
+
+  app.patch("/api/admin/offers/:offerId", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const data = offerInputSchema.parse(req.body);
+      const [offer] = await db.update(offers)
+        .set({
+          ...data,
+          percentageValue: data.offerType === "percentage" ? data.percentageValue : null,
+          cashValue: data.offerType === "cash" ? data.cashValue : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(offers.id, req.params.offerId))
+        .returning();
+      if (!offer) return res.status(404).json({ error: "Offer not found" });
+      res.json(offer);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Validation error", details: error.errors });
+      console.error("Error updating offer:", error);
+      res.status(500).json({ error: error.message || "Failed to update offer" });
+    }
+  });
+
+  app.get("/api/projects/:projectId/offers", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const role = req.session.role || "user";
+      if (!await canAccessProject(userId, role, req.params.projectId)) {
+        return res.status(403).json({ error: "Access denied to this project" });
+      }
+      const context = await getOfferContext(req.params.projectId);
+      if (!context) return res.status(404).json({ error: "Project not found" });
+      res.json({ woodworkValue: context.woodworkValue, offers: context.offers });
+    } catch (error: any) {
+      console.error("Error fetching project offers:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch project offers" });
+    }
+  });
+
+  app.patch("/api/projects/:projectId/offers/:offerId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const role = req.session.role || "user";
+      const { applied } = z.object({ applied: z.boolean() }).parse(req.body);
+      if (!await canAccessProject(userId, role, req.params.projectId)) {
+        return res.status(403).json({ error: "Access denied to this project" });
+      }
+
+      const context = await getOfferContext(req.params.projectId);
+      if (!context) return res.status(404).json({ error: "Project not found" });
+      if (context.project.status === "Generated") {
+        return res.status(403).json({ error: "Offers on a generated quotation are locked" });
+      }
+
+      const existing = context.selectedOffers.find((offer) => offer.offerId === req.params.offerId);
+      if (!applied) {
+        if (existing?.isLocked) return res.status(403).json({ error: "This offer is locked" });
+        await db.delete(projectOffers).where(and(
+          eq(projectOffers.projectId, req.params.projectId),
+          eq(projectOffers.offerId, req.params.offerId),
+        ));
+        return res.json({ applied: false });
+      }
+
+      const eligibleOffer = context.offers.find((offer) => offer.offerId === req.params.offerId && offer.isActive && offer.isStillEligible);
+      if (!eligibleOffer) {
+        return res.status(400).json({ error: "This offer is not currently eligible for the project's Woodwork value" });
+      }
+      const [saved] = await db.insert(projectOffers).values({
+        projectId: req.params.projectId,
+        offerId: eligibleOffer.offerId,
+        offerName: eligibleOffer.offerName,
+        productCategory: eligibleOffer.productCategory,
+        offerType: eligibleOffer.offerType,
+        percentageValue: eligibleOffer.percentageValue,
+        cashValue: eligibleOffer.cashValue,
+        minWoodworkValue: eligibleOffer.minWoodworkValue,
+        maxWoodworkValue: eligibleOffer.maxWoodworkValue,
+      }).onConflictDoUpdate({
+        target: [projectOffers.projectId, projectOffers.offerId],
+        set: {
+          offerName: eligibleOffer.offerName,
+          productCategory: eligibleOffer.productCategory,
+          offerType: eligibleOffer.offerType,
+          percentageValue: eligibleOffer.percentageValue,
+          cashValue: eligibleOffer.cashValue,
+          minWoodworkValue: eligibleOffer.minWoodworkValue,
+          maxWoodworkValue: eligibleOffer.maxWoodworkValue,
+          isLocked: false,
+          lockedAt: null,
+        },
+      }).returning();
+      res.json(saved);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Validation error", details: error.errors });
+      console.error("Error applying project offer:", error);
+      res.status(500).json({ error: error.message || "Failed to apply offer" });
     }
   });
 
@@ -1735,6 +2099,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== MILESTONE ROUTES ====================
+
+  const milestoneStageInputSchema = z.object({
+    name: z.string().trim().min(1, "Stage name is required").max(160),
+    creditAmount: z.number().min(0, "Credit amount cannot be negative"),
+  });
+
+  // Readable by authenticated designers so the Create Milestone menu always uses
+  // Admin-managed current configuration.
+  app.get("/api/milestone-stages", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      await ensureMilestoneStages();
+      res.json(await db.select().from(milestoneStages).orderBy(milestoneStages.createdAt));
+    } catch (error: any) {
+      console.error("Error fetching milestone stages:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch milestone stages" });
+    }
+  });
+
+  app.get("/api/admin/milestone-stages", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      await ensureMilestoneStages();
+      res.json(await db.select().from(milestoneStages).orderBy(milestoneStages.createdAt));
+    } catch (error: any) {
+      console.error("Error fetching milestone stage configuration:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch milestone stage configuration" });
+    }
+  });
+
+  app.post("/api/admin/milestone-stages", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const data = milestoneStageInputSchema.parse(req.body);
+      const [stage] = await db.insert(milestoneStages).values({
+        key: `custom_${crypto.randomUUID().replace(/-/g, "")}`,
+        name: data.name,
+        creditAmount: data.creditAmount,
+        category: "additional",
+      }).returning();
+      res.status(201).json(stage);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0].message });
+      console.error("Error creating milestone stage:", error);
+      res.status(500).json({ error: error.message || "Failed to create milestone stage" });
+    }
+  });
+
+  app.patch("/api/admin/milestone-stages/:stageId", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const data = milestoneStageInputSchema.parse(req.body);
+      const [stage] = await db.update(milestoneStages)
+        .set({ name: data.name, creditAmount: data.creditAmount, updatedAt: new Date() })
+        .where(eq(milestoneStages.id, req.params.stageId))
+        .returning();
+      if (!stage) return res.status(404).json({ error: "Milestone stage not found" });
+      res.json(stage);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0].message });
+      console.error("Error updating milestone stage:", error);
+      res.status(500).json({ error: error.message || "Failed to update milestone stage" });
+    }
+  });
   
   // Get milestones for a project
   app.get("/api/projects/:projectId/milestones", requireAuth, async (req: Request, res: Response) => {
@@ -1784,14 +2208,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { milestoneType, roomId, description } = validation.data;
 
-      // Validate milestoneType against server constants
-      const milestoneConfig = MILESTONE_TYPES[milestoneType as MilestoneType];
+      await ensureMilestoneStages();
+      const [milestoneConfig] = await db.select().from(milestoneStages)
+        .where(eq(milestoneStages.key, milestoneType));
       if (!milestoneConfig) {
         return res.status(400).json({ error: `Invalid milestone type: ${milestoneType}` });
       }
 
-      const creditAmount = milestoneConfig.amount;
-      const name = milestoneConfig.label;
+      const creditAmount = milestoneConfig.creditAmount;
+      const name = milestoneConfig.name;
 
       // For mandatory milestones, block duplicates (approved or pending/submitted)
       if (milestoneConfig.category === 'mandatory') {
@@ -2188,9 +2613,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Project not found" });
       }
 
-      const lineItems = await storage.getLineItemsByProject(projectId);
-      const { grandTotal } = computeQuotationTotals(lineItems, project.markup || 0, project.discount || 0);
-      const schedule = computePaymentSchedule(grandTotal);
+      const [lineItems, appliedOffers] = await Promise.all([
+        storage.getLineItemsByProject(projectId),
+        db.select().from(projectOffers).where(eq(projectOffers.projectId, projectId)),
+      ]);
+      const { finalPayable } = computeQuotationTotals(lineItems, project.markup || 0, project.discount || 0, appliedOffers);
+      const schedule = computePaymentSchedule(finalPayable);
       res.json(schedule);
     } catch (error: any) {
       console.error("Error fetching payment schedule:", error);
@@ -2441,6 +2869,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== ROOM SUB-CATEGORY ROUTES ====================
+  // Optional grouping layer between a room and its line items (e.g. "TV Unit" inside
+  // "Family Living Room"). A room with no sub-categories, or a line item with no
+  // subcategoryId, renders exactly as it did before this feature existed.
+
+  // List sub-categories for a room (with authorization check)
+  app.get("/api/rooms/:roomId/subcategories", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const role = req.session.role || "user";
+
+      const hasAccess = await canAccessRoom(userId, role, req.params.roomId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to this room" });
+      }
+
+      const subcategories = await storage.getRoomSubcategoriesByRoom(req.params.roomId);
+      res.json(subcategories);
+    } catch (error: any) {
+      console.error("Error fetching room subcategories:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch subcategories" });
+    }
+  });
+
+  // List sub-categories across all rooms in a project (used to render the full quotation
+  // preview / PDF without an N+1 request per room)
+  app.get("/api/projects/:projectId/subcategories", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const role = req.session.role || "user";
+
+      const hasAccess = await canAccessProject(userId, role, req.params.projectId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to this project" });
+      }
+
+      const subcategories = await storage.getRoomSubcategoriesByProject(req.params.projectId);
+      res.json(subcategories);
+    } catch (error: any) {
+      console.error("Error fetching project subcategories:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch subcategories" });
+    }
+  });
+
+  // Create a sub-category within a room (with authorization check)
+  app.post("/api/rooms/:roomId/subcategories", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const role = req.session.role || "user";
+
+      const hasAccess = await canAccessRoom(userId, role, req.params.roomId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to this room" });
+      }
+
+      if (await isRoomProjectFinalized(req.params.roomId)) {
+        return res.status(403).json({ error: "Cannot modify a finalized quote" });
+      }
+
+      const existing = await storage.getRoomSubcategoriesByRoom(req.params.roomId);
+      const validated = insertRoomSubcategorySchema.parse({
+        roomId: req.params.roomId,
+        name: req.body.name,
+        sortOrder: existing.length,
+      });
+
+      const subcategory = await storage.createRoomSubcategory(validated);
+      res.status(201).json(subcategory);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Validation error", details: error.errors });
+      }
+      console.error("Error creating room subcategory:", error);
+      res.status(500).json({ error: error.message || "Failed to create subcategory" });
+    }
+  });
+
+  // Delete a sub-category (ungroups its line items back to the room, does not delete them)
+  app.delete("/api/subcategories/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const role = req.session.role || "user";
+
+      const hasAccess = await canAccessRoomSubcategory(userId, role, req.params.id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to this subcategory" });
+      }
+
+      if (await isRoomSubcategoryProjectFinalized(req.params.id)) {
+        return res.status(403).json({ error: "Cannot modify a finalized quote" });
+      }
+
+      await storage.deleteRoomSubcategory(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting room subcategory:", error);
+      res.status(500).json({ error: error.message || "Failed to delete subcategory" });
+    }
+  });
+
   // ==================== LINE ITEM ROUTES ====================
   
   // Get all line items for current user's projects (respects role hierarchy)
@@ -2532,38 +3060,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Room not found" });
       }
 
-      const { description, unitType, lengthFt, heightFt, quantity, rate, itemType, catalogItemId } = req.body;
+      const { description, unitType, lengthFt, heightFt, depthFt = 0, quantity, rate, itemType, catalogItemId, subcategoryId, isComplimentary, complimentaryOfferName } = req.body;
       
-      // Note: catalogItemId is passed from the wizard which correctly filters by category
-      // This ensures the rate matches the correct Xpress/Xpand catalog item
-      // Future enhancement: could verify rate against catalog lookup here
+      // Keep the stable item code rather than the catalog row's database id: catalog
+      // rows are replaced during sync, while the item code survives across versions.
+      let selectedCatalogItem: { itemCode?: string; imageUrl?: string; rate?: number | null; sellingPrice?: number | null; itemType?: string | null } | undefined;
+      if (catalogItemId) {
+        // Resolve through the same project-scoped catalog used by the wizard. This
+        // accepts the project's pinned version and its explicit exceptions, while
+        // preventing a caller from attaching an item/image from another version.
+        const project = await storage.getProject(room.projectId);
+        if (!project?.pricingVersionId) {
+          return res.status(400).json({ error: "This project has no pricing catalog assigned." });
+        }
+        const permittedCatalog = await getCatalogForProject(project.pricingVersionId, room.projectId);
+        selectedCatalogItem = permittedCatalog.find((item) => item.id === catalogItemId);
+        if (!selectedCatalogItem) {
+          return res.status(400).json({ error: "The selected catalog item is not available for this project. Refresh the catalog and try again." });
+        }
+      }
+
+      // If a sub-category is targeted, it must belong to this same room -- otherwise a
+      // line item could end up grouped under another room's sub-category.
+      if (subcategoryId) {
+        const subcategory = await storage.getRoomSubcategory(subcategoryId);
+        if (!subcategory || subcategory.roomId !== req.params.roomId) {
+          return res.status(400).json({ error: "Subcategory does not belong to this room" });
+        }
+      }
 
       // Calculate derived values
       const sqft = lengthFt * heightFt;
       const lengthMm = lengthFt * 300;
       const heightMm = heightFt * 300;
+      const depthMm = depthFt * 300;
       
       // Amount calculation based on unit semantics:
       // - Area-based items (sqft > 0): rate × sqft × quantity
       // - Per-unit items (sqft = 0): rate × quantity
       // This applies regardless of itemType - Services/Civil with area use area pricing too
-      const isAreaBased = sqft > 0;
-      const amount = isAreaBased ? (rate * sqft * quantity) : (rate * quantity);
+      const effectiveItemType = selectedCatalogItem?.itemType || itemType || 'woodworks';
+      const isAreaBased = effectiveItemType !== 'furniture' && sqft > 0;
 
+      const catalogRate = selectedCatalogItem
+        ? (selectedCatalogItem.sellingPrice || selectedCatalogItem.rate || 0)
+        : rate;
       const validated = insertLineItemSchema.parse({
         roomId: req.params.roomId,
         projectId: room.projectId,
+        subcategoryId: subcategoryId || null,
         description,
         unitType,
         lengthFt,
         heightFt,
+        depthFt,
         sqft,
         lengthMm,
         heightMm,
-        rate,
+        depthMm,
+        rate: catalogRate,
         quantity,
-        amount,
-        itemType: itemType || 'woodworks',
+        amount: isAreaBased ? (catalogRate * sqft * quantity) : (catalogRate * quantity),
+        itemType: effectiveItemType,
+        catalogItemCode: selectedCatalogItem?.itemCode || null,
+        imageUrl: normalizeProductImageUrl(selectedCatalogItem?.imageUrl) || null,
+        isComplimentary: isComplimentary === true,
+        complimentaryOfferName: isComplimentary === true ? (complimentaryOfferName || "").trim() : null,
       });
       
       const lineItem = await storage.createLineItem(validated);
@@ -2589,12 +3151,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     rate: z.number().min(0, "Rate cannot be negative").optional(),
     lengthFt: z.number().min(0, "Length cannot be negative").optional(),
     heightFt: z.number().min(0, "Height cannot be negative").optional(),
+    depthFt: z.number().min(0, "Depth cannot be negative").optional(),
     sqft: z.number().min(0).optional(),
     lengthMm: z.number().min(0).optional(),
     heightMm: z.number().min(0).optional(),
+    depthMm: z.number().min(0).optional(),
     amount: z.number().min(0).optional(),
-    itemType: z.enum(["woodworks", "services", "accessories"]).optional(),
-  });
+    itemType: z.enum(["woodworks", "services", "accessories", "furniture"]).optional(),
+    // Reassign which sub-category this item belongs to. null = move it back to
+    // "directly under the room"; omitted = leave the current assignment unchanged.
+    subcategoryId: z.string().nullable().optional(),
+    isComplimentary: z.boolean().optional(),
+    complimentaryOfferName: z.string().nullable().optional(),
+  }).refine(
+    (data) => data.isComplimentary !== true || !!data.complimentaryOfferName?.trim(),
+    { message: "Offer name is required for a complimentary item", path: ["complimentaryOfferName"] }
+  );
 
   app.patch("/api/line-items/:id", requireAuth, async (req: Request, res: Response) => {
     try {
@@ -2625,13 +3197,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!currentItem) {
         return res.status(404).json({ error: "Line item not found" });
       }
+
+      // If reassigning to a sub-category, it must belong to the same room as this item
+      if (validationResult.data.subcategoryId) {
+        const subcategory = await storage.getRoomSubcategory(validationResult.data.subcategoryId);
+        if (!subcategory || subcategory.roomId !== currentItem.roomId) {
+          return res.status(400).json({ error: "Subcategory does not belong to this item's room" });
+        }
+      }
+
+      // Validate against the effective (post-merge) complimentary state, not just this
+      // partial payload -- e.g. clearing the offer name on an already-complimentary
+      // item without also un-checking the toggle must still be rejected.
+      const effectiveIsComplimentary = validationResult.data.isComplimentary ?? currentItem.isComplimentary;
+      const effectiveOfferName = validationResult.data.complimentaryOfferName !== undefined
+        ? validationResult.data.complimentaryOfferName
+        : currentItem.complimentaryOfferName;
+      if (effectiveIsComplimentary && !effectiveOfferName?.trim()) {
+        return res.status(400).json({ error: "Offer name is required for a complimentary item" });
+      }
       
       // Build update data - only recalculate derived fields if their source inputs changed
       const updateData = { ...validationResult.data };
       const inputData = validationResult.data;
+
+      // Turning the toggle off clears the offer name, so a later re-enable doesn't
+      // silently resurrect a stale name.
+      if (inputData.isComplimentary === false) {
+        updateData.complimentaryOfferName = null;
+      }
       
       // Check if any dimension-related fields were changed
-      const dimensionsChanged = inputData.lengthFt !== undefined || inputData.heightFt !== undefined;
+      const dimensionsChanged = inputData.lengthFt !== undefined || inputData.heightFt !== undefined || inputData.depthFt !== undefined;
       const quantityChanged = inputData.quantity !== undefined;
       const rateChanged = inputData.rate !== undefined;
       
@@ -2639,6 +3236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (dimensionsChanged || quantityChanged || rateChanged) {
         const lengthFt = inputData.lengthFt ?? currentItem.lengthFt;
         const heightFt = inputData.heightFt ?? currentItem.heightFt;
+        const depthFt = inputData.depthFt ?? currentItem.depthFt;
         const quantity = inputData.quantity ?? currentItem.quantity;
         const rate = inputData.rate ?? currentItem.rate;
         
@@ -2647,6 +3245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           updateData.sqft = lengthFt * heightFt;
           updateData.lengthMm = lengthFt * 300;
           updateData.heightMm = heightFt * 300;
+          updateData.depthMm = depthFt * 300;
         }
         
         // Recalculate amount if any pricing-related field changed
@@ -2654,7 +3253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // - Area-based items (sqft > 0): rate × sqft × quantity
         // - Per-unit items (sqft = 0): rate × quantity
         const sqft = updateData.sqft ?? currentItem.sqft;
-        const isAreaBased = sqft > 0;
+        const isAreaBased = currentItem.itemType !== 'furniture' && sqft > 0;
         updateData.amount = isAreaBased ? (sqft * rate * quantity) : (rate * quantity);
       }
       
@@ -2899,6 +3498,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!hasAccess) {
         return res.status(403).json({ error: "Access denied to this project" });
       }
+
+      const sourceProject = await storage.getProject(req.params.id);
+      if (!sourceProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      if (!sourceProject.pid?.trim()) {
+        return res.status(400).json({
+          error: "Assign a Project ID (PID) to this legacy project before duplicating it",
+        });
+      }
       
       const newProject = await storage.duplicateProject(req.params.id, userId);
       res.status(201).json(newProject);
@@ -2929,7 +3538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create user (admin/super_admin only) - create user with username and password
   app.post("/api/admin/users", requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
-      const { username, password, firstName, lastName, role, managerId } = req.body;
+      const { username, password, firstName, lastName, role, managerId, cohort } = req.body;
       
       if (!username || !username.trim()) {
         return res.status(400).json({ error: "Username is required" });
@@ -2937,6 +3546,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!password || password.length < 6) {
         return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+      const normalizedRole = typeof role === "string" ? role : "user";
+      if (!USER_ROLES.has(normalizedRole)) {
+        return res.status(400).json({ error: "Invalid user role" });
+      }
+      const normalizedCohort = cohort === "PD" || cohort === "DTL" ? cohort : null;
+      if (cohort && !normalizedCohort) {
+        return res.status(400).json({ error: "TL cohort must be PD or DTL" });
+      }
+      if (normalizedRole === "tl" && !normalizedCohort) {
+        return res.status(400).json({ error: "Choose PD or DTL for a Team Lead" });
       }
       
       // Validate username format (alphanumeric and underscores only)
@@ -2953,7 +3573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Admins can't create super_admin users
       const currentRole = req.session.role || "user";
-      if (currentRole === "admin" && role === "super_admin") {
+      if (currentRole === "admin" && normalizedRole === "super_admin") {
         return res.status(403).json({ error: "Only super admins can create super admin users" });
       }
       
@@ -2985,7 +3605,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: hashedPassword,
         firstName: firstName?.trim() || null,
         lastName: lastName?.trim() || null,
-        role: role || "user",
+        role: normalizedRole,
+        cohort: normalizedRole === "tl" ? normalizedCohort : null,
         managerId: managerId || null,
         status: "active",
       });
@@ -3018,7 +3639,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Remove password from update if present (use separate endpoint for password changes)
-      const { password, ...updateData } = req.body;
+      const { password, role, managerId, cohort } = req.body;
+      const updateData: Record<string, string | null> = {};
+      if (role !== undefined) {
+        if (typeof role !== "string" || !USER_ROLES.has(role)) {
+          return res.status(400).json({ error: "Invalid user role" });
+        }
+        if (currentRole === "admin" && role === "super_admin") {
+          return res.status(403).json({ error: "Only super admins can create super admin users" });
+        }
+        updateData.role = role;
+      }
+      if (managerId !== undefined) updateData.managerId = managerId || null;
+      const resultingRole = updateData.role || targetUser.role;
+      if (cohort !== undefined && cohort !== null && !TL_COHORTS.has(cohort)) {
+        return res.status(400).json({ error: "TL cohort must be PD or DTL" });
+      }
+      if (resultingRole === "tl" && !(cohort ?? targetUser.cohort)) {
+        return res.status(400).json({ error: "Choose PD or DTL for a Team Lead" });
+      }
+      updateData.cohort = resultingRole === "tl" ? (cohort ?? targetUser.cohort) : null;
       
       const user = await storage.updateUser(req.params.id, updateData);
       if (!user) {
@@ -3308,9 +3948,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Failed to update share last accessed:", err);
       });
       
-      // Get rooms and line items
+      // Get rooms, line items and sub-categories
       const rooms = await storage.getRoomsByProject(project.id);
-      const lineItems = await storage.getLineItemsByProject(project.id);
+      const [lineItems, appliedOffers] = await Promise.all([
+        storage.getLineItemsByProject(project.id),
+        db.select().from(projectOffers).where(eq(projectOffers.projectId, project.id)),
+      ]);
+      const subcategories = await storage.getRoomSubcategoriesByProject(project.id);
+
+      const toPublicLineItem = (li: typeof lineItems[number]) => ({
+        description: li.description,
+        dimensions: `${li.lengthFt} × ${li.heightFt} ft`,
+        lengthFt: li.lengthFt,
+        heightFt: li.heightFt,
+        lengthMm: li.lengthMm,
+        heightMm: li.heightMm,
+        sqft: li.sqft,
+        quantity: li.quantity,
+        rate: li.rate,
+        amount: li.amount,
+        itemType: li.itemType,
+        imageUrl: li.imageUrl,
+        isComplimentary: li.isComplimentary,
+        complimentaryOfferName: li.complimentaryOfferName,
+      });
       
       // Return limited project info for client view (no internal IDs)
       res.json({
@@ -3320,26 +3981,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pid: project.pid, // Include PID for display
         markup: project.markup || 0,
         discount: project.discount || 0,
-        createdAt: project.createdAt,
-        rooms: rooms.map(room => ({
-          roomName: room.roomName,
-          roomType: room.roomType,
-          lineItems: lineItems
-            .filter(li => li.roomId === room.id)
-            .map(li => ({
-              description: li.description,
-              dimensions: `${li.lengthFt} × ${li.heightFt} ft`,
-              lengthFt: li.lengthFt,
-              heightFt: li.heightFt,
-              lengthMm: li.lengthMm,
-              heightMm: li.heightMm,
-              sqft: li.sqft,
-              quantity: li.quantity,
-              rate: li.rate,
-              amount: li.amount,
-              itemType: li.itemType,
-            })),
+        offers: appliedOffers.map((offer) => ({
+          offerType: offer.offerType,
+          percentageValue: offer.percentageValue,
+          cashValue: offer.cashValue,
         })),
+        createdAt: project.createdAt,
+        rooms: rooms.map(room => {
+          const roomLineItems = lineItems.filter(li => li.roomId === room.id);
+          const roomSubcategories = subcategories.filter(sc => sc.roomId === room.id);
+          return {
+            roomName: room.roomName,
+            roomType: room.roomType,
+            // Kept for backward compatibility with older cached clients: the full flat
+            // list of this room's line items, same shape as before sub-categories existed.
+            lineItems: roomLineItems.map(toPublicLineItem),
+            // New optional grouping layer. Empty when the room has no sub-categories.
+            subcategories: roomSubcategories.map(sc => ({
+              name: sc.name,
+              lineItems: roomLineItems.filter(li => li.subcategoryId === sc.id).map(toPublicLineItem),
+            })),
+            // Items not in any sub-category (or all of them, when the room has none)
+            ungroupedLineItems: roomLineItems.filter(li => !li.subcategoryId).map(toPublicLineItem),
+          };
+        }),
       });
     } catch (error: any) {
       console.error("Error fetching shared quote:", error);
@@ -3486,7 +4151,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const rooms = await storage.getRoomsByProject(projectId);
-      const lineItems = await storage.getLineItemsByProject(projectId);
+      const [lineItems, appliedOffers] = await Promise.all([
+        storage.getLineItemsByProject(projectId),
+        db.select().from(projectOffers).where(eq(projectOffers.projectId, projectId)),
+      ]);
+      const subcategories = await storage.getRoomSubcategoriesByProject(projectId);
       const companySettings = await storage.getCompanySettings();
 
       const [credits] = await db.select().from(projectCredits).where(eq(projectCredits.projectId, projectId));
@@ -3502,8 +4171,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         woodworksGst, woodworksTotal,
         enablementFeeValue, enablementFeeGst, enablementFeeTotal,
         servicesSubtotal, servicesGst, servicesTotal,
-        accessoriesTotal, totalGst, grandTotal,
-      } = computeQuotationTotals(lineItems, markup, discount);
+        accessoriesTotal, furnitureTotal, totalGst, grandTotal,
+        offerPercentageDiscount, cashDiscount, finalPayable,
+      } = computeQuotationTotals(lineItems, markup, discount, appliedOffers);
 
       // Format currency with no decimals (rounded to whole numbers)
       const formatCurrency = (amount: number) => `₹${Math.round(amount).toLocaleString("en-IN")}`;
@@ -3536,13 +4206,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dimensionUnit = useMm ? "mm" : "ft";
 
       // Generate HTML content
-      const roomsHtml = rooms.map(room => {
-        const roomLineItems = sortLineItemsByCategory(lineItems.filter(li => li.roomId === room.id));
-        if (roomLineItems.length === 0) return '';
+      // Builds one <table> (header + rows + subtotal footer) for a set of line items.
+      // Used both for a room with no sub-categories (whole room in one table, exactly
+      // as before this feature existed) and for each sub-category / ungrouped group.
+      const renderLineItemsTable = (items: typeof lineItems, subtotalLabel: string) => {
+        const sortedItems = sortLineItemsByCategory(items);
+        const subtotal = computeRoomSubtotalDisplay(sortedItems, discount);
+        // A complimentary item's ₹0/offer label needs the "Amount After Discount"
+        // column even when no project-level discount is set, so it isn't hidden.
+        const hasComplimentary = sortedItems.some(li => li.isComplimentary);
+        const showDiscountCol = discount > 0 || hasComplimentary;
 
-        const roomTotal = roomLineItems.reduce((sum, li) => sum + li.amount, 0);
-
-        const discountCol = discount > 0 ? `<th style="text-align: right; padding: 8px 12px; font-size: 12px;">Amount After Discount</th>` : '';
+        const discountCol = showDiscountCol ? `<th style="text-align: right; padding: 8px 12px; font-size: 12px;">Amount After Discount</th>` : '';
         const headerColumns = showDetailedPricing
           ? `<th style="text-align: left; padding: 8px 12px; border-right: 1px solid #d1d5db; font-size: 12px;">Description</th>
              <th style="text-align: center; padding: 8px 6px; border-right: 1px solid #d1d5db; white-space: nowrap; font-size: 12px;">Dimensions (${dimensionUnit})</th>
@@ -3550,10 +4225,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
              <th style="text-align: right; padding: 8px 12px; border-right: 1px solid #d1d5db; font-size: 12px;">Amount</th>
              ${discountCol}`
           : `<th style="text-align: left; padding: 8px 12px; border-right: 1px solid #d1d5db; font-size: 12px;">Description</th>
-             <th style="text-align: right; padding: 8px 12px; ${discount > 0 ? 'border-right: 1px solid #d1d5db;' : ''} font-size: 12px;">Amount</th>
+             <th style="text-align: right; padding: 8px 12px; ${showDiscountCol ? 'border-right: 1px solid #d1d5db;' : ''} font-size: 12px;">Amount</th>
              ${discountCol}`;
 
-        const rowsHtml = roomLineItems.map((li, index) => {
+        const rowsHtml = sortedItems.map((li, index) => {
           const bgColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
           
           // Check if item has dimensions (non-zero length and height)
@@ -3570,45 +4245,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           const isWoodwork = (li.itemType || "woodworks") === "woodworks";
-          const discountCellHtml = discount > 0 
-            ? `<td style="text-align: right; padding: 8px 12px; font-family: monospace; font-size: 12px;">${isWoodwork ? formatCurrency(li.amount * (1 - discount / 100)) : 'Not Applicable'}</td>` 
+          const discountCellHtml = showDiscountCol
+            ? (li.isComplimentary
+                ? `<td style="text-align: right; padding: 8px 12px; font-size: 12px;"><div style="color: #6b7280; font-size: 11px;">Complimentary (${li.complimentaryOfferName || ''})</div><div style="font-family: monospace; font-weight: 600;">${formatCurrency(0)}</div></td>`
+                : `<td style="text-align: right; padding: 8px 12px; font-family: monospace; font-size: 12px;">${discount > 0 ? (isWoodwork ? formatCurrency(li.amount * (1 - discount / 100)) : 'Not Applicable') : 'Not Applicable'}</td>`)
             : '';
+          const productImageHtml = li.imageUrl
+            ? `<img src="${li.imageUrl}" alt="" style="width: 52px; height: 52px; object-fit: contain; border: 1px solid #e5e7eb; border-radius: 4px; flex: 0 0 auto;" />`
+            : '';
+          const descriptionHtml = `<div style="display: flex; align-items: center; gap: 8px;">${productImageHtml}<span>${li.description}</span></div>`;
           const columns = showDetailedPricing
-            ? `<td style="padding: 8px 12px; border-right: 1px solid #e5e7eb; font-size: 12px; line-height: 1.3;">${li.description}</td>
+            ? `<td style="padding: 8px 12px; border-right: 1px solid #e5e7eb; font-size: 12px; line-height: 1.3;">${descriptionHtml}</td>
                <td style="text-align: center; padding: 8px 6px; border-right: 1px solid #e5e7eb; white-space: nowrap; font-size: 12px;">${dimensionDisplay}</td>
                <td style="text-align: center; padding: 8px 6px; border-right: 1px solid #e5e7eb; font-size: 12px;">${li.quantity}</td>
-               <td style="text-align: right; padding: 8px 12px; font-family: monospace; font-weight: 500; font-size: 12px; ${discount > 0 ? 'border-right: 1px solid #e5e7eb;' : ''}">${formatCurrency(li.amount)}</td>
+               <td style="text-align: right; padding: 8px 12px; font-family: monospace; font-weight: 500; font-size: 12px; ${showDiscountCol ? 'border-right: 1px solid #e5e7eb;' : ''}">${formatCurrency(li.amount)}</td>
                ${discountCellHtml}`
-            : `<td style="padding: 8px 12px; border-right: 1px solid #e5e7eb; font-size: 12px; line-height: 1.3;">${li.description}</td>
-               <td style="text-align: right; padding: 8px 12px; font-family: monospace; font-weight: 500; font-size: 12px; ${discount > 0 ? 'border-right: 1px solid #e5e7eb;' : ''}">${formatCurrency(li.amount)}</td>
+            : `<td style="padding: 8px 12px; border-right: 1px solid #e5e7eb; font-size: 12px; line-height: 1.3;">${descriptionHtml}</td>
+               <td style="text-align: right; padding: 8px 12px; font-family: monospace; font-weight: 500; font-size: 12px; ${showDiscountCol ? 'border-right: 1px solid #e5e7eb;' : ''}">${formatCurrency(li.amount)}</td>
                ${discountCellHtml}`;
 
           return `<tr style="background-color: ${bgColor}; border-bottom: 1px solid #d1d5db;">${columns}</tr>`;
         }).join('');
 
         const footerColspan = showDetailedPricing ? 3 : 1;
+        const footerTotalColumns = footerColspan + 1 + (showDiscountCol ? 1 : 0);
+
+        return `
+          <table style="width: 100%; font-size: 13px; border-collapse: collapse; border: 1px solid #d1d5db;">
+            <thead>
+              <tr style="background-color: #e5e7eb; border-bottom: 2px solid #9ca3af;">
+                ${headerColumns}
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+            <tfoot>
+              <tr style="background-color: #f3f4f6; border-top: 2px solid #9ca3af;">
+                <td colspan="${footerTotalColumns}" style="text-align: right; padding: 8px 12px; font-size: 12px;">
+                  <div style="font-weight: 600;">${subtotalLabel} (After Discount): <span style="font-family: monospace; font-weight: bold; margin-left: 16px;">${formatCurrency(subtotal.afterDiscount)}</span></div>
+                  <div style="color: #6b7280; font-size: 11px; margin-top: 3px;">Pre-Discount: <span style="font-family: monospace; margin-left: 16px;">${formatCurrency(subtotal.preDiscount)}</span></div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        `;
+      };
+
+      const roomsHtml = rooms.map(room => {
+        const roomLineItems = lineItems.filter(li => li.roomId === room.id);
+        if (roomLineItems.length === 0) return '';
+
+        const roomSubtotal = computeRoomSubtotalDisplay(roomLineItems, discount);
+        // Room's own style override, falling back to the project default when unset,
+        // stripped of the "DeX - " prefix for a friendly label.
+        const roomVariantLabel = (room.category || project.defaultCategory || '').replace(/^DeX - /, '');
+
+        const roomSubcategories = subcategories.filter(sc => sc.roomId === room.id);
+        const ungroupedItems = roomLineItems.filter(li => !li.subcategoryId);
+
+        const bodyHtml = roomSubcategories.length === 0
+          ? renderLineItemsTable(roomLineItems, 'Room Subtotal')
+          : `
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              ${roomSubcategories.map(sc => {
+                const items = roomLineItems.filter(li => li.subcategoryId === sc.id);
+                if (items.length === 0) return '';
+                return `
+                  <div>
+                    <h4 style="margin: 0 0 4px 0; font-weight: 600; font-size: 13px;">${sc.name}</h4>
+                    ${renderLineItemsTable(items, 'Subtotal')}
+                  </div>
+                `;
+              }).join('')}
+              ${ungroupedItems.length > 0 ? `
+                <div>
+                  <h4 style="margin: 0 0 4px 0; font-weight: 600; font-size: 13px; color: #6b7280;">Other Items</h4>
+                  ${renderLineItemsTable(ungroupedItems, 'Subtotal')}
+                </div>
+              ` : ''}
+              <div style="text-align: right; font-size: 13px; padding: 4px 0;">
+                <div><span style="font-weight: 600;">Room Sub Total (After Discount): </span><span style="font-family: monospace; font-weight: bold;">${formatCurrency(roomSubtotal.afterDiscount)}</span></div>
+                <div style="color: #6b7280; font-size: 11px; margin-top: 3px;">Pre-Discount: <span style="font-family: monospace;">${formatCurrency(roomSubtotal.preDiscount)}</span></div>
+              </div>
+            </div>
+          `;
 
         return `
           <div class="room-section" style="margin-bottom: 20px;">
             <div class="room-header" style="background-color: #f3f4f6; padding: 6px 12px; margin-bottom: 6px;">
-              <h3 style="margin: 0; font-weight: 600; font-size: 14px;">${room.roomName}${room.category ? ` (${room.category})` : ''}</h3>
+              <h3 style="margin: 0; font-weight: 600; font-size: 14px;">${room.roomName}${roomVariantLabel ? ` (${roomVariantLabel})` : ''}</h3>
               <span style="font-size: 12px; color: #6b7280;">${room.roomType}</span>
             </div>
-            <table style="width: 100%; font-size: 13px; border-collapse: collapse; border: 1px solid #d1d5db;">
-              <thead>
-                <tr style="background-color: #e5e7eb; border-bottom: 2px solid #9ca3af;">
-                  ${headerColumns}
-                </tr>
-              </thead>
-              <tbody>${rowsHtml}</tbody>
-              <tfoot>
-                <tr style="background-color: #f3f4f6; border-top: 2px solid #9ca3af;">
-                  <td colspan="${footerColspan}" style="text-align: right; padding: 8px 12px; font-weight: 600; font-size: 12px; border-right: 1px solid #d1d5db;">Room Subtotal:</td>
-                  <td style="text-align: right; padding: 8px 12px; font-family: monospace; font-weight: bold; font-size: 12px;">${formatCurrency(roomTotal)}</td>
-                  ${discount > 0 ? '<td></td>' : ''}
-                </tr>
-              </tfoot>
-            </table>
+            ${bodyHtml}
           </div>
         `;
       }).join('');
@@ -3641,6 +4368,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           <tr style="border-bottom: 1px solid #d1d5db;"><td style="padding: 8px 0 4px 0; font-weight: 600;">Accessories Total (GST Inclusive)</td><td style="text-align: right; padding: 8px 0 4px 0; font-family: monospace; font-weight: 600;">${formatCurrency(accessoriesTotal)}</td></tr>
         `;
       }
+      if (categoryTotals.furniture > 0) {
+        summaryHtml += `
+          <tr style="border-bottom: 1px solid #d1d5db;"><td style="padding: 8px 0 4px 0; font-weight: 600;">Furniture Total (GST Inclusive)</td><td style="text-align: right; padding: 8px 0 4px 0; font-family: monospace; font-weight: 600;">${formatCurrency(furnitureTotal)}</td></tr>
+        `;
+      }
       if (markup > 0 && categoryTotals.woodworks > 0) {
         summaryHtml += `
           <tr style="border-bottom: 1px solid #d1d5db;"><td style="padding: 8px 0 4px 0; font-weight: 600;">Enablement Fee (${markup}%) + GST (18%)</td><td style="text-align: right; padding: 8px 0 4px 0; font-family: monospace; font-weight: 600;">${formatCurrency(enablementFeeTotal)}</td></tr>
@@ -3649,7 +4381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Build payment schedule HTML
       let paymentScheduleHtml = '';
-      const ps = computePaymentSchedule(grandTotal);
+      const ps = computePaymentSchedule(finalPayable);
       if (ps.grandTotal > 0) {
         paymentScheduleHtml = `
           <section style="border-top: 2px solid #1f2937; padding-top: 12px; margin-top: 24px; page-break-inside: avoid;">
@@ -3835,9 +4567,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             <table style="width: 100%; font-size: 13px;">
               <tbody>
                 ${summaryHtml}
-                <tr style="font-size: 16px;">
-                  <td style="padding: 10px 0; font-weight: bold;">GRAND TOTAL</td>
-                  <td style="text-align: right; padding: 10px 0; font-family: monospace; font-weight: bold; font-size: 18px;">${formatCurrency(grandTotal)}</td>
+                <tr>
+                  <td style="padding: 6px 0; font-weight: 600;">GST-inclusive Total</td>
+                  <td style="text-align: right; padding: 6px 0; font-family: monospace; font-weight: 600;">${formatCurrency(grandTotal)}</td>
+                </tr>
+                ${offerPercentageDiscount > 0 ? `<tr><td style="padding: 4px 0; color: #6b7280;">Offer Discount (%)</td><td style="text-align: right; padding: 4px 0; font-family: monospace; color: #16a34a;">-${formatCurrency(offerPercentageDiscount)}</td></tr>` : ''}
+                ${cashDiscount > 0 ? `<tr><td style="padding: 4px 0; color: #6b7280;">Cash Discount (after GST)</td><td style="text-align: right; padding: 4px 0; font-family: monospace; color: #16a34a;">-${formatCurrency(cashDiscount)}</td></tr>` : ''}
+                <tr style="font-size: 16px; border-top: 1px solid #d1d5db;">
+                  <td style="padding: 10px 0; font-weight: bold;">FINAL PAYABLE AMOUNT</td>
+                  <td style="text-align: right; padding: 10px 0; font-family: monospace; font-weight: bold; font-size: 18px;">${formatCurrency(finalPayable)}</td>
                 </tr>
               </tbody>
             </table>

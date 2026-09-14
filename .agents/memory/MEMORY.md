@@ -15,3 +15,11 @@
 - [Blank attribute defaults](blank-attribute-defaults.md) — a blank room type means "any room"; defaulting it on the read path silently hides half the catalog from the other room.
 - [Version pinning hides new items](version-pinning-vs-new-items.md) — a pinned record never sees items added later; it looks like a permissions bug. Ignore the stamp on reads in single-catalog mode.
 - [Stale state in dialog-confirm mutations](stale-state-dialog-mutations.md) — a mutationFn reading target state at call time can silently get the reset value when a Radix AlertDialogAction's auto-close races the mutation; pass the id as a mutate() argument instead.
+- [Browser test runtime](browser-test-runtime.md) — workspace Chromium may require its discovered Nix executable path because Puppeteer’s bundled browser is unavailable.
+- [Duplicated style/category display logic](duplicated-style-display-logic.md) — the multiStyleEnabled/defaultCategory ternary is hand-copied in ~5 unrelated files; check all of them when fixing a display bug there.
+- [Catalog product images](catalog-product-images.md) — Sheets API cannot read pasted cell images; use public URL text, and Drive files must be shared to anyone with the link.
+- [Xpress/Xpand one-price rows](xpress-xpand-price-columns.md) — additive Sheet rows must mirror one entered price into J and M so the next sync preserves quote-facing selling price.
+- [Role assignment model](role-assignment-model.md) — project role assignment is separate from project creation; TL cohort is inherited by every quotation assigned to that TL.
+- [Header-driven catalog tabs](header-driven-catalog-tabs.md) — new master tabs map by stable header names and numeric gid; Admin values stay sheet-managed rather than hard-coded.
+- [Quote-level offers](quote-level-offers.md) — selected offers reduce the GST-inclusive total separately from existing category discounts and lock only when a quote is generated.
+- [Milestone credit history](milestone-credit-history.md) — stage configuration changes apply only to future milestones; project records preserve their original name and credits.

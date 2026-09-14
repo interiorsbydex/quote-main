@@ -146,11 +146,13 @@ export default function CatalogBrowser() {
                     <SelectItem value="all">All Categories</SelectItem>
                     <SelectItem value="DeX - Xpress">Xpress</SelectItem>
                     <SelectItem value="DeX - Xpand">Xpand</SelectItem>
+                    <SelectItem value="DeX - Xclusive">Xclusive</SelectItem>
                     <SelectItem value="DeX - Accessories">Accessories</SelectItem>
                     <SelectItem value="DeX - Services">Services</SelectItem>
                     <SelectItem value="DeX - Lights">Lights</SelectItem>
                     <SelectItem value="DeX - Stone Master">Stone Master</SelectItem>
                     <SelectItem value="DeX - Handles">Handles</SelectItem>
+                    <SelectItem value="DeX - Appliances">Appliances</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
