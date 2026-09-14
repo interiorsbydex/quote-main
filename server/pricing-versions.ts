@@ -115,6 +115,9 @@ export async function listVersions(): Promise<PricingVersion[]> {
 }
 
 export async function getEnabledTabs(): Promise<CatalogSheetTab[]> {
+  // Keep reads self-healing so the UI sees newly introduced default tabs before it
+  // submits an explicit gid selection to the sync endpoint.
+  await seedSheetTabs();
   return db
     .select()
     .from(catalogSheetTabs)
@@ -123,6 +126,7 @@ export async function getEnabledTabs(): Promise<CatalogSheetTab[]> {
 }
 
 export async function getAllTabs(): Promise<CatalogSheetTab[]> {
+  await seedSheetTabs();
   return db.select().from(catalogSheetTabs).orderBy(catalogSheetTabs.sortOrder);
 }
 
