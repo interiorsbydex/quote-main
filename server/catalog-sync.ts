@@ -88,6 +88,7 @@ export interface SyncResult {
  * automatically even if the operation throws.
  */
 export const CATALOG_LOCK_KEY = 918273645;
+const HANDLES_SHEET_TAB_ID = 1863704353;
 
 export async function acquireCatalogLock(tx: any): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(${CATALOG_LOCK_KEY})`);
@@ -128,6 +129,27 @@ export function parseTabRows(
   });
   const normalizedHeaders = headers.map((header) => String(header ?? '').toLowerCase().replace(/\s+/g, ' ').trim());
   const headerIndex = (...names: string[]) => normalizedHeaders.findIndex((header) => names.includes(header));
+  const requiredHeaders = tab.sheetTabId === HANDLES_SHEET_TAB_ID
+    ? [['brand'], ['product image', 'product imgae'], ['description'], ['rates', 'rate', 'selling value', 'selling price'], ['item code']]
+    : layout === 'furniture'
+      ? [['brand'], ['description'], ['unit'], ['mrp'], ['active']]
+      : layout === 'appliances'
+        ? [['brand'], ['description'], ['unit'], ['mrp']]
+        : [];
+  const missingHeaders = requiredHeaders
+    .filter((aliases) => headerIndex(...aliases) < 0)
+    .map((aliases) => aliases[0]);
+  if (missingHeaders.length > 0) {
+    return {
+      items: [],
+      errors: [{
+        row: 0,
+        category: liveTitle,
+        message: `Required column(s) missing: ${missingHeaders.join(', ')}. Existing prices were left untouched.`,
+        severity: 'error',
+      }],
+    };
+  }
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex];
@@ -139,9 +161,32 @@ export function parseTabRows(
       let projectType, section, roomTypeRaw, unitType, panelType, itemCategory;
       let materialType, brand, description;
       let rate, markup, markupValue, sellingPrice;
+      let finishesOverride: string[] | null = null;
 
       let furnitureFields: Record<string, unknown> | null = null;
-      if (layout === 'furniture') {
+      if (tab.sheetTabId === HANDLES_SHEET_TAB_ID) {
+        // Handles has its own header contract even though its historical tab metadata
+        // uses the xpress_xpand layout. In particular, H is Product image, G is Brand,
+        // J is the customer-facing rate, and N is Item Code.
+        const valueAt = (...names: string[]) => {
+          const index = headerIndex(...names);
+          return index >= 0 ? row[index] : null;
+        };
+        projectType = valueAt('project type');
+        section = valueAt('services type', 'section');
+        roomTypeRaw = null;
+        itemCategory = valueAt('work type');
+        unitType = valueAt('product code', 'unit type');
+        panelType = valueAt('dimension');
+        materialType = valueAt('work type');
+        finishesOverride = [...parseMultiSelectCell(valueAt('available finishes'))];
+        brand = valueAt('brand');
+        description = valueAt('description');
+        sellingPrice = valueAt('rates', 'rate', 'selling value', 'selling price');
+        rate = sellingPrice;
+        markup = undefined;
+        markupValue = undefined;
+      } else if (layout === 'furniture') {
         const valueAt = (...names: string[]) => {
           const index = headerIndex(...names);
           return index >= 0 ? row[index] : null;
@@ -352,7 +397,7 @@ export function parseTabRows(
       const imageUrl = normalizeProductImageUrl(rawImageValue);
 
       const rowWarnings: string[] = [];
-      if (layout !== 'furniture' && layout !== 'appliances' && roomTypes.length === 1 && !roomTypes[0]) rowWarnings.push('Room type is empty');
+      if (layout !== 'furniture' && layout !== 'appliances' && tab.sheetTabId !== HANDLES_SHEET_TAB_ID && roomTypes.length === 1 && !roomTypes[0]) rowWarnings.push('Room type is empty');
       if (roomTypes.length > 1) rowWarnings.push(`Multi-room-type item duplicated for: ${roomTypes.join(', ')}`);
       if (!unitType) rowWarnings.push('Unit type is empty');
       if (!description) rowWarnings.push('Description is empty');
@@ -399,7 +444,7 @@ export function parseTabRows(
           requiresDepth: furnitureFields?.requiresDepth === true,
           isActive: furnitureFields?.isActive === false ? false : true,
           materials,
-          finishes: brands,
+          finishes: finishesOverride ?? brands,
           specifications,
           itemType: tab.itemType as any,
           hasErrors: false,
@@ -540,8 +585,20 @@ export async function syncCatalogToDraft(
         syncLogId: syncLog.id,
         pricingVersionId: draft.id,
       }, headers);
-      allItems.push(...parsed.items);
       errors.push(...parsed.errors);
+      if (parsed.errors.some((error) => error.severity === 'error' && error.row === 0)) {
+        continue;
+      }
+      if (parsed.items.length === 0) {
+        errors.push({
+          row: 0,
+          category: liveTitle,
+          message: `Tab "${liveTitle}" contained rows but produced no catalog items. Its existing prices were left untouched.`,
+          severity: 'error',
+        });
+        continue;
+      }
+      allItems.push(...parsed.items);
       fetchedGids.push(tab.sheetTabId);
       syncedTabs.push({ sheetTabId: tab.sheetTabId, title: liveTitle, items: parsed.items.length });
       categoryCounts[tab.categoryName] = parsed.items.length;
