@@ -4,10 +4,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { DEX_CATEGORIES, type CatalogItem, type ItemType } from "@/lib/types";
+import FurnitureLineItemWizard from "./FurnitureLineItemWizard";
+import CustomFurnitureLineItemWizard from "./CustomFurnitureLineItemWizard";
+import AppliancesLineItemWizard from "./AppliancesLineItemWizard";
+import SearchableSelect from "./SearchableSelect";
 
 // Parse finish from material_type string dynamically.
 // Strategy:
@@ -65,6 +69,30 @@ function extractHandle(materialType: string | null | undefined): string | null {
   return null;
 }
 
+function getQuantityInstruction(unit: string | null | undefined): string | null {
+  switch (unit?.trim().toLowerCase()) {
+    case "sqft":
+      return "Quantity to be entered in Sqft (L × H)";
+    case "ls":
+      return "Quantity to be entered in LS";
+    case "rft":
+      return "Quantity to be entered in Rft";
+    case "nos":
+      return "Quantity to be entered in Nos";
+    default:
+      return null;
+  }
+}
+
+const MILLIMETERS_PER_FOOT = 304.8;
+
+function convertMmToFeet(mm: number): number {
+  if (!Number.isFinite(mm) || mm <= 0) return 0;
+  const feet = mm / MILLIMETERS_PER_FOOT;
+  // The required examples round partial quarter-foot increments upward.
+  return Math.ceil((feet * 4) - 1e-10) / 4;
+}
+
 export interface AddLineItemWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -90,10 +118,15 @@ export interface LineItemFormData {
   description: string;
   lengthFt: number;
   heightFt: number;
+  depthFt?: number;
   quantity: number;
   itemType: ItemType; // For GST calculation - woodworks/services/accessories
   catalogItemId?: string; // ID of the selected catalog item for server-side rate lookup
   rate?: number; // Rate from catalog item (fallback if server lookup fails)
+  // Complimentary Offer: MRP still displays normally, but the item is shown as a
+  // named ₹0 line and fully excluded from every total.
+  isComplimentary?: boolean;
+  complimentaryOfferName?: string;
 }
 
 // Item category types for multi-category support per room
@@ -104,6 +137,8 @@ const ITEM_CATEGORY_OPTIONS = [
   { value: "lights", label: "Lights", description: "Lighting fixtures" },
   { value: "stone", label: "Stone/Quartz", description: "Countertops, surfaces" },
   { value: "handles", label: "Handles", description: "Cabinet handles, knobs" },
+  { value: "furniture", label: "Furniture", description: "Standard Furniture from the Furniture Master" },
+  { value: "appliances", label: "Appliances", description: "Kitchen and home appliances from the Appliances Master" },
 ] as const;
 
 type ItemCategoryType = typeof ITEM_CATEGORY_OPTIONS[number]["value"];
@@ -123,6 +158,10 @@ function getCatalogCategory(itemCategoryType: ItemCategoryType, woodworksStyle?:
       return "DeX - Stone Master";
     case "handles":
       return "DeX - Handles";
+    case "furniture":
+      return "DeX - Furniture";
+    case "appliances":
+      return "DeX - Appliances";
     default:
       return undefined;
   }
@@ -139,6 +178,9 @@ export default function AddLineItemWizard({
 }: AddLineItemWizardProps) {
   const [step, setStep] = useState(1);
   const [selectedItemCategory, setSelectedItemCategory] = useState<ItemCategoryType>("woodworks");
+  const [furnitureFlow, setFurnitureFlow] = useState<"standard" | "custom" | null>(null);
+  const [lengthMmInput, setLengthMmInput] = useState(0);
+  const [heightMmInput, setHeightMmInput] = useState(0);
   const [formData, setFormData] = useState<LineItemFormData>({
     unitType: "",
     materialType: "",
@@ -154,6 +196,8 @@ export default function AddLineItemWizard({
     heightFt: 0,
     quantity: 1,
     itemType: "woodworks", // Default, will be updated from catalog item
+    isComplimentary: false,
+    complimentaryOfferName: "",
   });
 
   // Determine the effective catalog category based on selected item type
@@ -162,9 +206,11 @@ export default function AddLineItemWizard({
   // Check if category is a valid DeX category
   const isValidDexCategory = effectiveCategory && (DEX_CATEGORIES as readonly string[]).includes(effectiveCategory);
   
-  // Room type filtering only applies to Xpress/Xpand (woodworks) categories
+  // Room type filtering only applies to DeX woodworks categories
   const isWoodworksCategory = selectedItemCategory === "woodworks" && 
-    (effectiveCategory === "DeX - Xpress" || effectiveCategory === "DeX - Xpand");
+    (effectiveCategory === "DeX - Xpress" ||
+      effectiveCategory === "DeX - Xpand" ||
+      effectiveCategory === "DeX - Xclusive");
 
   // Build query params for server-side filtering
   const catalogParams = new URLSearchParams();
@@ -210,6 +256,7 @@ export default function AddLineItemWizard({
   const isServicesCategory = selectedItemCategory === "services";
   const isAccessoriesCategory = selectedItemCategory === "accessories";
   const isHandlesCategory = selectedItemCategory === "handles";
+  const isStoneCategory = selectedItemCategory === "stone";
   
   // Start with filtered catalog for filtering chain
   const itemsForWorkType = filteredCatalog;
@@ -360,8 +407,11 @@ export default function AddLineItemWizard({
       .filter((desc): desc is string => !!desc && desc.trim() !== '')
   ));
 
+  const visibleImages = images;
+
   // Get selected catalog item from the properly filtered list to ensure correct pricing
   const selectedItem = itemsForDescriptions.find(item => item.description === formData.description);
+  const quantityInstruction = getQuantityInstruction(selectedItem?.materialType);
 
   // Woodwork: Handle step is optional (CNC, Panels etc. don't have handles)
   const hasHandles = handles.length > 0;
@@ -412,7 +462,9 @@ export default function AddLineItemWizard({
   };
 
   const handleBack = () => {
-    if (step > 1) setStep(step - 1);
+    if (step > 1) {
+      setStep(step - 1);
+    }
   };
 
   const handleCategoryChange = (value: ItemCategoryType) => {
@@ -464,6 +516,8 @@ export default function AddLineItemWizard({
       itemType: getItemType(),
       catalogItemId: selectedItem?.id, // Pass catalog item ID for server-side rate lookup
       rate: itemRate, // Pass rate as fallback
+      isComplimentary: formData.isComplimentary,
+      complimentaryOfferName: formData.isComplimentary ? formData.complimentaryOfferName?.trim() : undefined,
     };
     // Call onSubmit - the parent will handle closing the dialog after mutation completes
     // Form reset happens automatically via useEffect when dialog closes (open becomes false)
@@ -481,6 +535,20 @@ export default function AddLineItemWizard({
   const amount = isWoodworksCategory 
     ? rate * sqft * formData.quantity 
     : rate * formData.quantity;
+
+  const updateDimensionFromMm = (dimension: "length" | "height", rawValue: string) => {
+    const mm = parseFloat(rawValue);
+    const nextMm = Number.isFinite(mm) && mm > 0 ? mm : 0;
+    const nextFeet = convertMmToFeet(nextMm);
+
+    if (dimension === "length") {
+      setLengthMmInput(nextMm);
+      setFormData({ ...formData, lengthFt: nextFeet });
+    } else {
+      setHeightMmInput(nextMm);
+      setFormData({ ...formData, heightFt: nextFeet });
+    }
+  };
 
   const isStepValid = () => {
     if (catalogLoading && step > 1) return false;
@@ -565,11 +633,64 @@ export default function AddLineItemWizard({
         description: "",
         lengthFt: 0,
         heightFt: 0,
+        depthFt: 0,
         quantity: 1,
         itemType: "woodworks",
       });
+       setLengthMmInput(0);
+       setHeightMmInput(0);
+       setFurnitureFlow(null);
     }
   }, [open]);
+
+  if (selectedItemCategory === "furniture") {
+    if (furnitureFlow === "custom") {
+      return <CustomFurnitureLineItemWizard
+        open={open}
+        projectId={projectId}
+        isSubmitting={isSubmitting}
+        onOpenChange={onOpenChange}
+        onBack={() => setFurnitureFlow(null)}
+        onSubmit={onSubmit}
+      />;
+    }
+    if (!furnitureFlow) {
+      return <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md" data-testid="dialog-select-furniture-type">
+          <DialogHeader><DialogTitle>Select Furniture Type</DialogTitle></DialogHeader>
+          <div className="grid gap-3">
+            <Button variant="outline" className="h-auto justify-start p-5 text-left" onClick={() => setFurnitureFlow("standard")}>
+              <span><strong className="block">Standard Furniture</strong><span className="text-sm font-normal text-muted-foreground">Choose a ready-configured item from the Furniture Master.</span></span>
+            </Button>
+            <Button variant="outline" className="h-auto justify-start p-5 text-left" onClick={() => setFurnitureFlow("custom")}>
+              <span><strong className="block">Custom Furniture</strong><span className="text-sm font-normal text-muted-foreground">Configure a custom furniture item and enter its required dimensions.</span></span>
+            </Button>
+            <Button variant="ghost" onClick={() => { setSelectedItemCategory("woodworks"); setStep(1); }}>Back</Button>
+          </div>
+        </DialogContent>
+      </Dialog>;
+    }
+    return <FurnitureLineItemWizard
+      open={open}
+      projectId={projectId}
+      isSubmitting={isSubmitting}
+      onOpenChange={onOpenChange}
+      onBack={() => { setFurnitureFlow(null); }}
+      onSubmit={onSubmit}
+    />;
+  }
+
+  if (selectedItemCategory === "appliances") {
+    return <AppliancesLineItemWizard
+      open={open}
+      projectId={projectId}
+      projectVariant={category}
+      isSubmitting={isSubmitting}
+      onOpenChange={onOpenChange}
+      onBack={() => { setSelectedItemCategory("woodworks"); setStep(1); }}
+      onSubmit={onSubmit}
+    />;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -663,22 +784,19 @@ export default function AddLineItemWizard({
 
                 <div className="space-y-2">
                   <Label htmlFor="unitType">Unit Type</Label>
-                  <Select
+                  <SearchableSelect
+                    id="unitType"
                     value={formData.unitType}
-                    onValueChange={(value) => setFormData({ ...formData, unitType: value, finish: "", handle: "", handleFinish: "", brand: "", size: "", image: "", description: "" })}
+                    onValueChange={(value) => {
+                      setFormData({ ...formData, unitType: value, finish: "", handle: "", handleFinish: "", brand: "", size: "", image: "", description: "" });
+                    }}
+                    options={unitTypes}
+                    placeholder={unitTypes.length === 0 ? "No unit types available" : "Select unit type"}
+                    emptyMessage="No unit types match your search."
+                    searchPlaceholder="Search unit types..."
                     disabled={unitTypes.length === 0}
-                  >
-                    <SelectTrigger id="unitType" data-testid="select-unit-type">
-                      <SelectValue placeholder={unitTypes.length === 0 ? "No unit types available" : "Select unit type"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[500px]">
-                      {unitTypes.map((type) => (
-                        <SelectItem key={type} value={type} className="max-w-[480px]">
-                          <span className="truncate block">{type}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    testId="select-unit-type"
+                  />
                 </div>
               </div>
             ) : null}
@@ -692,22 +810,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="brand">Brand</Label>
-                  <Select
+                  <SearchableSelect
+                    id="brand"
                     value={formData.brand || ""}
                     onValueChange={(value) => setFormData({ ...formData, brand: value, description: "" })}
+                    options={brands}
+                    placeholder={brands.length === 0 ? "No brands available" : "Select brand"}
+                    emptyMessage="No brands match your search."
+                    searchPlaceholder="Search brands..."
                     disabled={brands.length === 0}
-                  >
-                    <SelectTrigger id="brand" data-testid="select-brand">
-                      <SelectValue placeholder={brands.length === 0 ? "No brands available" : "Select brand"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[500px]">
-                      {brands.map((b) => (
-                        <SelectItem key={b} value={b} className="max-w-[480px]">
-                          <span className="truncate block">{b}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    testId="select-brand"
+                  />
                 </div>
               </div>
             )}
@@ -721,27 +834,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Select
+                  <SearchableSelect
+                    id="description"
                     value={formData.description}
                     onValueChange={(value) => setFormData({ ...formData, description: value })}
-                  >
-                    <SelectTrigger id="description" data-testid="select-description">
-                      <SelectValue placeholder="Select description" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[600px] max-h-[300px]">
-                      {descriptions.length === 0 ? (
-                        <div className="p-4 text-sm text-muted-foreground text-center">
-                          No items available for this brand
-                        </div>
-                      ) : (
-                        descriptions.map((desc) => (
-                          <SelectItem key={desc} value={desc} className="max-w-[580px]">
-                            <span className="line-clamp-2 whitespace-normal text-sm">{desc}</span>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    options={descriptions}
+                    placeholder="Select description"
+                    emptyMessage="No items are available for this brand."
+                    searchPlaceholder="Search descriptions..."
+                    disabled={descriptions.length === 0}
+                    testId="select-description"
+                  />
                 </div>
               </div>
             )}
@@ -755,7 +858,10 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="max-w-xs">
                   <div className="space-y-2">
-                    <Label htmlFor="quantity">Quantity</Label>
+                      <Label htmlFor="quantity">Quantity</Label>
+                      {quantityInstruction && (
+                        <p className="text-xs text-muted-foreground">{quantityInstruction}</p>
+                      )}
                     <Input
                       id="quantity"
                       type="number"
@@ -781,22 +887,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="size">Size</Label>
-                  <Select
+                  <SearchableSelect
+                    id="size"
                     value={formData.size || ""}
                     onValueChange={(value) => setFormData({ ...formData, size: value, handleFinish: "", image: "", description: "" })}
+                    options={sizes}
+                    placeholder={sizes.length === 0 ? "No sizes available" : "Select size"}
+                    emptyMessage="No sizes match your search."
+                    searchPlaceholder="Search sizes..."
                     disabled={sizes.length === 0}
-                  >
-                    <SelectTrigger id="size" data-testid="select-size">
-                      <SelectValue placeholder={sizes.length === 0 ? "No sizes available" : "Select size"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[500px]">
-                      {sizes.map((s) => (
-                        <SelectItem key={s} value={s} className="max-w-[480px]">
-                          <span className="truncate block">{s}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    testId="select-size"
+                  />
                 </div>
               </div>
             )}
@@ -810,22 +911,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="handleFinish">Finish</Label>
-                  <Select
+                  <SearchableSelect
+                    id="handleFinish"
                     value={formData.handleFinish || ""}
                     onValueChange={(value) => setFormData({ ...formData, handleFinish: value, image: "", description: "" })}
+                    options={handleFinishes}
+                    placeholder={handleFinishes.length === 0 ? "No finishes available" : "Select finish"}
+                    emptyMessage="No finishes match your search."
+                    searchPlaceholder="Search finishes..."
                     disabled={handleFinishes.length === 0}
-                  >
-                    <SelectTrigger id="handleFinish" data-testid="select-handle-finish">
-                      <SelectValue placeholder={handleFinishes.length === 0 ? "No finishes available" : "Select finish"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[500px]">
-                      {handleFinishes.map((f) => (
-                        <SelectItem key={f} value={f} className="max-w-[480px]">
-                          <span className="truncate block">{f}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    testId="select-handle-finish"
+                  />
                 </div>
               </div>
             )}
@@ -838,7 +934,12 @@ export default function AddLineItemWizard({
                   <p className="text-sm text-muted-foreground">Choose the specific handle product</p>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {images.map((imageUrl) => {
+                  {visibleImages.length === 0 && (
+                    <div className="col-span-full rounded border border-dashed p-6 text-center text-sm text-muted-foreground">
+                      No product images are available for this selection.
+                    </div>
+                  )}
+                  {visibleImages.map((imageUrl) => {
                     const itemForImage = itemsForHandleFinish.find(item => item.imageUrl === imageUrl);
                     const isSelected = formData.image === imageUrl;
                     return (
@@ -897,27 +998,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Select
+                  <SearchableSelect
+                    id="description"
                     value={formData.description}
                     onValueChange={(value) => setFormData({ ...formData, description: value })}
-                  >
-                    <SelectTrigger id="description" data-testid="select-description">
-                      <SelectValue placeholder="Select handle" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[600px] max-h-[300px]">
-                      {descriptions.length === 0 ? (
-                        <div className="p-4 text-sm text-muted-foreground text-center">
-                          No handles available for this selection
-                        </div>
-                      ) : (
-                        descriptions.map((desc) => (
-                          <SelectItem key={desc} value={desc} className="max-w-[580px]">
-                            <span className="line-clamp-2 whitespace-normal text-sm">{desc}</span>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    options={descriptions}
+                    placeholder="Select handle"
+                    emptyMessage="No handles are available for this selection."
+                    searchPlaceholder="Search handles..."
+                    disabled={descriptions.length === 0}
+                    testId="select-description"
+                  />
                 </div>
               </div>
             )}
@@ -964,6 +1055,9 @@ export default function AddLineItemWizard({
                 <div className="max-w-xs">
                   <div className="space-y-2">
                     <Label htmlFor="quantity">Quantity</Label>
+                      {quantityInstruction && (
+                        <p className="text-xs text-muted-foreground">{quantityInstruction}</p>
+                      )}
                     <Input
                       id="quantity"
                       type="number"
@@ -989,22 +1083,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="finish">Finish</Label>
-                  <Select
+                  <SearchableSelect
+                    id="finish"
                     value={formData.finish || ""}
                     onValueChange={(value) => setFormData({ ...formData, finish: value, handle: "", description: "" })}
+                    options={finishes}
+                    placeholder={finishes.length === 0 ? "No finishes available" : "Select finish"}
+                    emptyMessage="No finishes match your search."
+                    searchPlaceholder="Search finishes..."
                     disabled={finishes.length === 0}
-                  >
-                    <SelectTrigger id="finish" data-testid="select-finish">
-                      <SelectValue placeholder={finishes.length === 0 ? "No finishes available" : "Select finish"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[500px]">
-                      {finishes.map((f) => (
-                        <SelectItem key={f} value={f} className="max-w-[480px]">
-                          <span className="truncate block">{f}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    testId="select-finish"
+                  />
                 </div>
               </div>
             )}
@@ -1018,22 +1107,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="handle">Handle</Label>
-                  <Select
+                  <SearchableSelect
+                    id="handle"
                     value={formData.handle || ""}
                     onValueChange={(value) => setFormData({ ...formData, handle: value, description: "" })}
+                    options={handles}
+                    placeholder={handles.length === 0 ? "No handles available" : "Select handle"}
+                    emptyMessage="No handles match your search."
+                    searchPlaceholder="Search handles..."
                     disabled={handles.length === 0}
-                  >
-                    <SelectTrigger id="handle" data-testid="select-handle">
-                      <SelectValue placeholder={handles.length === 0 ? "No handles available" : "Select handle"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[500px]">
-                      {handles.map((h) => (
-                        <SelectItem key={h} value={h} className="max-w-[480px]">
-                          <span className="truncate block">{h}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    testId="select-handle"
+                  />
                 </div>
               </div>
             )}
@@ -1047,27 +1131,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Select
+                  <SearchableSelect
+                    id="description"
                     value={formData.description}
                     onValueChange={(value) => setFormData({ ...formData, description: value })}
-                  >
-                    <SelectTrigger id="description" data-testid="select-description">
-                      <SelectValue placeholder="Select description" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[600px] max-h-[300px]">
-                      {descriptions.length === 0 ? (
-                        <div className="p-4 text-sm text-muted-foreground text-center">
-                          No items available for this finish and handle
-                        </div>
-                      ) : (
-                        descriptions.map((desc) => (
-                          <SelectItem key={desc} value={desc} className="max-w-[580px]">
-                            <span className="line-clamp-2 whitespace-normal text-sm">{desc}</span>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    options={descriptions}
+                    placeholder="Select description"
+                    emptyMessage="No items are available for this finish and handle."
+                    searchPlaceholder="Search descriptions..."
+                    disabled={descriptions.length === 0}
+                    testId="select-description"
+                  />
                 </div>
               </div>
             )}
@@ -1081,27 +1155,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Select
+                  <SearchableSelect
+                    id="description"
                     value={formData.description}
                     onValueChange={(value) => setFormData({ ...formData, description: value })}
-                  >
-                    <SelectTrigger id="description" data-testid="select-description">
-                      <SelectValue placeholder="Select description" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[600px] max-h-[300px]">
-                      {descriptions.length === 0 ? (
-                        <div className="p-4 text-sm text-muted-foreground text-center">
-                          No items available for this finish
-                        </div>
-                      ) : (
-                        descriptions.map((desc) => (
-                          <SelectItem key={desc} value={desc} className="max-w-[580px]">
-                            <span className="line-clamp-2 whitespace-normal text-sm">{desc}</span>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    options={descriptions}
+                    placeholder="Select description"
+                    emptyMessage="No items are available for this finish."
+                    searchPlaceholder="Search descriptions..."
+                    disabled={descriptions.length === 0}
+                    testId="select-description"
+                  />
                 </div>
               </div>
             )}
@@ -1115,27 +1179,17 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Select
+                  <SearchableSelect
+                    id="description"
                     value={formData.description}
                     onValueChange={(value) => setFormData({ ...formData, description: value })}
-                  >
-                    <SelectTrigger id="description" data-testid="select-description">
-                      <SelectValue placeholder="Select description" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[600px] max-h-[300px]">
-                      {descriptions.length === 0 ? (
-                        <div className="p-4 text-sm text-muted-foreground text-center">
-                          No items available for this unit type
-                        </div>
-                      ) : (
-                        descriptions.map((desc) => (
-                          <SelectItem key={desc} value={desc} className="max-w-[580px]">
-                            <span className="line-clamp-2 whitespace-normal text-sm">{desc}</span>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    options={descriptions}
+                    placeholder="Select description"
+                    emptyMessage="No items are available for this unit type."
+                    searchPlaceholder="Search descriptions..."
+                    disabled={descriptions.length === 0}
+                    testId="select-description"
+                  />
                 </div>
               </div>
             )}
@@ -1149,51 +1203,40 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="length">Length (ft)</Label>
+                    <Label htmlFor="length-mm">Length (mm)</Label>
                     <Input
-                      id="length"
+                      id="length-mm"
                       type="number"
-                      min="0.25"
-                      step="0.25"
-                      value={formData.lengthFt || ''}
-                      onChange={(e) => {
-                        const raw = parseFloat(e.target.value);
-                        setFormData({ ...formData, lengthFt: isNaN(raw) ? 0 : raw });
-                      }}
-                      onBlur={() => {
-                        if (formData.lengthFt > 0) {
-                          setFormData({ ...formData, lengthFt: Math.round(formData.lengthFt * 4) / 4 });
-                        }
-                      }}
+                      min="0"
+                      step="1"
+                      value={lengthMmInput || ''}
+                      onChange={(e) => updateDimensionFromMm("length", e.target.value)}
                       placeholder="0"
                       className="text-right font-mono"
-                      data-testid="input-length"
+                      data-testid="input-length-mm"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="height">Height (ft)</Label>
+                    <Label htmlFor="height-mm">Height (mm)</Label>
                     <Input
-                      id="height"
+                      id="height-mm"
                       type="number"
-                      min="0.25"
-                      step="0.25"
-                      value={formData.heightFt || ''}
-                      onChange={(e) => {
-                        const raw = parseFloat(e.target.value);
-                        setFormData({ ...formData, heightFt: isNaN(raw) ? 0 : raw });
-                      }}
-                      onBlur={() => {
-                        if (formData.heightFt > 0) {
-                          setFormData({ ...formData, heightFt: Math.round(formData.heightFt * 4) / 4 });
-                        }
-                      }}
+                      min="0"
+                      step="1"
+                      value={heightMmInput || ''}
+                      onChange={(e) => updateDimensionFromMm("height", e.target.value)}
                       placeholder="0"
                       className="text-right font-mono"
-                      data-testid="input-height"
+                      data-testid="input-height-mm"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="quantity">Quantity</Label>
+                    <Label htmlFor="quantity">
+                      Quantity
+                    </Label>
+                    {quantityInstruction && (
+                      <p className="text-xs text-muted-foreground">{quantityInstruction}</p>
+                    )}
                     <Input
                       id="quantity"
                       type="number"
@@ -1204,6 +1247,32 @@ export default function AddLineItemWizard({
                       placeholder="1"
                       className="text-right font-mono"
                       data-testid="input-quantity"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 max-w-2xl">
+                  <div className="space-y-2">
+                    <Label htmlFor="length-ft">Length (ft)</Label>
+                    <Input
+                      id="length-ft"
+                      type="text"
+                      value={formData.lengthFt > 0 ? formData.lengthFt.toFixed(2) : ''}
+                      readOnly
+                      aria-readonly="true"
+                      className="text-right font-mono bg-muted"
+                      data-testid="input-length-ft"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="height-ft">Height (ft)</Label>
+                    <Input
+                      id="height-ft"
+                      type="text"
+                      value={formData.heightFt > 0 ? formData.heightFt.toFixed(2) : ''}
+                      readOnly
+                      aria-readonly="true"
+                      className="text-right font-mono bg-muted"
+                      data-testid="input-height-ft"
                     />
                   </div>
                 </div>
@@ -1219,51 +1288,38 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="length">Length (ft)</Label>
+                    <Label htmlFor="length-mm">Length (mm)</Label>
                     <Input
-                      id="length"
+                      id="length-mm"
                       type="number"
-                      min="0.25"
-                      step="0.25"
-                      value={formData.lengthFt || ''}
-                      onChange={(e) => {
-                        const raw = parseFloat(e.target.value);
-                        setFormData({ ...formData, lengthFt: isNaN(raw) ? 0 : raw });
-                      }}
-                      onBlur={() => {
-                        if (formData.lengthFt > 0) {
-                          setFormData({ ...formData, lengthFt: Math.round(formData.lengthFt * 4) / 4 });
-                        }
-                      }}
+                      min="0"
+                      step="1"
+                      value={lengthMmInput || ''}
+                      onChange={(e) => updateDimensionFromMm("length", e.target.value)}
                       placeholder="0"
                       className="text-right font-mono"
-                      data-testid="input-length"
+                      data-testid="input-length-mm"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="height">Height (ft)</Label>
+                    <Label htmlFor="height-mm">Height (mm)</Label>
                     <Input
-                      id="height"
+                      id="height-mm"
                       type="number"
-                      min="0.25"
-                      step="0.25"
-                      value={formData.heightFt || ''}
-                      onChange={(e) => {
-                        const raw = parseFloat(e.target.value);
-                        setFormData({ ...formData, heightFt: isNaN(raw) ? 0 : raw });
-                      }}
-                      onBlur={() => {
-                        if (formData.heightFt > 0) {
-                          setFormData({ ...formData, heightFt: Math.round(formData.heightFt * 4) / 4 });
-                        }
-                      }}
+                      min="0"
+                      step="1"
+                      value={heightMmInput || ''}
+                      onChange={(e) => updateDimensionFromMm("height", e.target.value)}
                       placeholder="0"
                       className="text-right font-mono"
-                      data-testid="input-height"
+                      data-testid="input-height-mm"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="quantity">Quantity</Label>
+                    {quantityInstruction && (
+                      <p className="text-xs text-muted-foreground">{quantityInstruction}</p>
+                    )}
                     <Input
                       id="quantity"
                       type="number"
@@ -1274,6 +1330,32 @@ export default function AddLineItemWizard({
                       placeholder="1"
                       className="text-right font-mono"
                       data-testid="input-quantity"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 max-w-2xl">
+                  <div className="space-y-2">
+                    <Label htmlFor="length-ft">Length (ft)</Label>
+                    <Input
+                      id="length-ft"
+                      type="text"
+                      value={formData.lengthFt > 0 ? formData.lengthFt.toFixed(2) : ''}
+                      readOnly
+                      aria-readonly="true"
+                      className="text-right font-mono bg-muted"
+                      data-testid="input-length-ft"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="height-ft">Height (ft)</Label>
+                    <Input
+                      id="height-ft"
+                      type="text"
+                      value={formData.heightFt > 0 ? formData.heightFt.toFixed(2) : ''}
+                      readOnly
+                      aria-readonly="true"
+                      className="text-right font-mono bg-muted"
+                      data-testid="input-height-ft"
                     />
                   </div>
                 </div>
@@ -1290,7 +1372,12 @@ export default function AddLineItemWizard({
                 </div>
                 <div className="max-w-xs">
                   <div className="space-y-2">
-                    <Label htmlFor="quantity">Quantity</Label>
+                    <Label htmlFor="quantity">
+                        Quantity
+                    </Label>
+                      {quantityInstruction && (
+                        <p className="text-xs text-muted-foreground">{quantityInstruction}</p>
+                      )}
                     <Input
                       id="quantity"
                       type="number"
@@ -1381,6 +1468,37 @@ export default function AddLineItemWizard({
                     </div>
                   </CardContent>
                 </Card>
+
+                <Card>
+                  <CardContent className="pt-6 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label htmlFor="complimentary-toggle" className="font-semibold">Complimentary Offer</Label>
+                        <p className="text-xs text-muted-foreground">
+                          MRP shows as usual, but this item shows as a ₹0 offer and is excluded from the grand total.
+                        </p>
+                      </div>
+                      <Switch
+                        id="complimentary-toggle"
+                        checked={formData.isComplimentary || false}
+                        onCheckedChange={(checked) => setFormData({ ...formData, isComplimentary: checked })}
+                        data-testid="switch-complimentary"
+                      />
+                    </div>
+                    {formData.isComplimentary && (
+                      <div className="space-y-2">
+                        <Label htmlFor="offer-name">Offer Name</Label>
+                        <Input
+                          id="offer-name"
+                          placeholder="e.g. Mother's Day Offer"
+                          value={formData.complimentaryOfferName || ""}
+                          onChange={(e) => setFormData({ ...formData, complimentaryOfferName: e.target.value })}
+                          data-testid="input-offer-name"
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
           </div>
@@ -1411,7 +1529,7 @@ export default function AddLineItemWizard({
               <Button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || (formData.isComplimentary === true && !formData.complimentaryOfferName?.trim())}
                 data-testid="button-add-item"
               >
                 {isSubmitting ? (

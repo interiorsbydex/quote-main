@@ -1,7 +1,8 @@
 // Style options - main material specification (project/room level)
 export const DEX_STYLES = [
   "DeX - Xpress",
-  "DeX - Xpand"
+  "DeX - Xpand",
+  "DeX - Xclusive"
 ] as const;
 
 export type DexStyle = typeof DEX_STYLES[number];
@@ -9,21 +10,24 @@ export type DexStyle = typeof DEX_STYLES[number];
 // All catalog categories - for line item selection
 export const DEX_CATEGORIES = [
   "DeX - Xpress",
-  "DeX - Xpand", 
+  "DeX - Xpand",
+  "DeX - Xclusive",
   "DeX - Accessories",
   "DeX - Services",
   "DeX - Lights",
   "DeX - Stone Master",
-  "DeX - Handles"
+  "DeX - Handles",
+  "DeX - Furniture",
+  "DeX - Appliances"
 ] as const;
 
 export type DexCategory = typeof DEX_CATEGORIES[number];
 
 // Item type for GST calculation purposes
-export type ItemType = 'woodworks' | 'services' | 'accessories';
+export type ItemType = 'woodworks' | 'services' | 'accessories' | 'furniture';
 
 // All item category types (6 categories)
-export type ItemCategoryType = 'woodworks' | 'accessories' | 'handles' | 'services' | 'lights' | 'stone';
+export type ItemCategoryType = 'woodworks' | 'accessories' | 'handles' | 'services' | 'lights' | 'stone' | 'furniture' | 'appliances';
 
 // Category order for sorting line items
 export const CATEGORY_SORT_ORDER: Record<string, number> = {
@@ -33,6 +37,8 @@ export const CATEGORY_SORT_ORDER: Record<string, number> = {
   'services': 4,
   'lights': 5,
   'stone': 6,
+  'furniture': 7,
+  'appliances': 8,
 };
 
 // Helper to sort line items by category order
@@ -47,6 +53,7 @@ export function sortLineItemsByCategory<T extends { itemType?: string }>(items: 
 export interface CatalogItem {
   id: string;
   categoryName: DexCategory | string; // string for backward compatibility with legacy data
+  projectType?: string;
   roomType: "Wet / Exposed" | "Dry / Inexposed" | string;
   section?: string; // Work type for Services (e.g., "Civil Services")
   unitType: string;
@@ -57,6 +64,15 @@ export interface CatalogItem {
   markup: number;
   sellingPrice: number;
   imageUrl?: string; // URL to product image (hosted externally)
+  applicableArea?: string | null;
+  productCategory?: string | null;
+  subCategory?: string | null;
+  finishType?: string | null;
+  dimension?: string | null;
+  requiresLength?: boolean;
+  requiresHeight?: boolean;
+  requiresDepth?: boolean;
+  isActive?: boolean;
   itemType?: ItemType; // Derived from category for GST calculation
 }
 
@@ -86,6 +102,9 @@ export interface Client {
 export interface Project {
   id: string;
   userId: string;
+  tlId?: string | null;
+  blId?: string | null;
+  dmId?: string | null;
   clientId?: string | null;
   clientName: string;
   pid?: string | null; // Project ID for easy reference/search
@@ -105,6 +124,22 @@ export interface Project {
   updatedAt: Date;
 }
 
+export interface ProjectOffer {
+  id: string;
+  offerId: string;
+  offerName: string;
+  productCategory: string;
+  offerType: "percentage" | "cash";
+  percentageValue?: number | null;
+  cashValue?: number | null;
+  minWoodworkValue: number;
+  maxWoodworkValue?: number | null;
+  isActive?: boolean;
+  isApplied: boolean;
+  isLocked: boolean;
+  isStillEligible: boolean;
+}
+
 export interface Room {
   id: string;
   projectId: string;
@@ -115,21 +150,40 @@ export interface Room {
   createdAt: Date;
 }
 
+// Optional grouping layer between a Room and its line items, e.g. "TV Unit" inside
+// "Family Living Room". A room with none of these renders exactly as before.
+export interface RoomSubcategory {
+  id: string;
+  roomId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: Date;
+}
+
 export interface LineItem {
   id: string;
   roomId: string;
   projectId: string;
+  subcategoryId?: string | null; // null = directly under the room (no sub-category)
   description: string;
   unitType: string;
   lengthFt: number;
   heightFt: number;
+  depthFt: number;
   sqft: number;
   lengthMm: number;
   heightMm: number;
+  depthMm: number;
   rate: number;
   quantity: number;
   amount: number;
   itemType: ItemType; // For GST calculation - woodworks/services/accessories
+  catalogItemCode?: string | null;
+  imageUrl?: string | null;
+  // Complimentary Offer: MRP (amount) still displays normally, but the item is shown
+  // as a named ₹0 line and fully excluded from every total.
+  isComplimentary: boolean;
+  complimentaryOfferName?: string | null;
   createdAt: Date;
 }
 
@@ -143,8 +197,8 @@ export interface QuotationSummary {
   grandTotal: number;
 }
 
-// User role hierarchy: super_admin > admin (team manager) > user (team member)
-export type UserRole = "super_admin" | "admin" | "user";
+// Administrative roles are super_admin/admin; assignment roles are tl, bl, and dm.
+export type UserRole = "super_admin" | "admin" | "user" | "tl" | "bl" | "dm";
 
 export interface User {
   id: string;
@@ -153,6 +207,7 @@ export interface User {
   firstName?: string | null;
   lastName?: string | null;
   role: UserRole;
+  cohort?: "PD" | "DTL" | null;
   managerId?: string | null;
 }
 

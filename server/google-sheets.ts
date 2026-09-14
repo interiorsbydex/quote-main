@@ -61,6 +61,7 @@ export interface CatalogItem {
   /** The row's stable code in the sheet. Absent on legacy rows that never got one. */
   itemCode?: string;
   categoryName: "Economy" | "Lite Premium" | "Premium" | "Luxury";
+  projectType?: string;
   roomType: "Wet / Exposed" | "Dry / Inexposed";
   unitType: string;
   materialType?: string;
@@ -339,7 +340,9 @@ function toCacheItem(item: any): CatalogItem {
     id: item.id,
     itemCode: item.itemCode || undefined,
     categoryName: item.categoryName as any,
+    projectType: item.projectType || undefined,
     roomType: (item.roomType || '') as any,
+    section: item.section || undefined,
     unitType: item.unitType || '',
     materialType: item.materialType || undefined,
     brand: item.brand || undefined,
@@ -348,7 +351,16 @@ function toCacheItem(item: any): CatalogItem {
     markup: item.markup || 0,
     sellingPrice: item.sellingPrice || 0,
     imageUrl: item.imageUrl || undefined,
-    itemType: (item.itemType as 'woodworks' | 'services' | 'accessories') || 'woodworks',
+    applicableArea: item.applicableArea || undefined,
+    productCategory: item.productCategory || undefined,
+    subCategory: item.subCategory || undefined,
+    finishType: item.finishType || undefined,
+    dimension: item.dimension || undefined,
+    requiresLength: item.requiresLength === true,
+    requiresHeight: item.requiresHeight === true,
+    requiresDepth: item.requiresDepth === true,
+    isActive: item.isActive !== false,
+    itemType: (item.itemType as 'woodworks' | 'services' | 'accessories' | 'furniture') || 'woodworks',
   } as CatalogItem;
 }
 

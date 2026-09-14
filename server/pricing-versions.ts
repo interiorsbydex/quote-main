@@ -72,11 +72,14 @@ export async function assertVersionMutable(
 export const DEFAULT_SHEET_TABS: Array<Omit<CatalogSheetTab, "id" | "createdAt" | "updatedAt">> = [
   { sheetTabId: 1463070649, tabTitle: "DeX - Xpress",        categoryName: "DeX - Xpress",       itemCodePrefix: "XPR", layout: "xpress_xpand",  itemType: "woodworks",   enabled: true, sortOrder: 1 },
   { sheetTabId: 1970451562, tabTitle: "DeX - Xpand",         categoryName: "DeX - Xpand",        itemCodePrefix: "XPD", layout: "xpress_xpand",  itemType: "woodworks",   enabled: true, sortOrder: 2 },
-  { sheetTabId: 1996860450, tabTitle: "DeX - Services",      categoryName: "DeX - Services",     itemCodePrefix: "SRV", layout: "services_stone", itemType: "services",   enabled: true, sortOrder: 3 },
-  { sheetTabId: 818317477,  tabTitle: "DeX - Accessories ",  categoryName: "DeX - Accessories",  itemCodePrefix: "ACC", layout: "accessories",   itemType: "accessories", enabled: true, sortOrder: 4 },
-  { sheetTabId: 15831228,   tabTitle: "DeX -  Lights",       categoryName: "DeX - Lights",       itemCodePrefix: "LGT", layout: "lights",        itemType: "accessories", enabled: true, sortOrder: 5 },
-  { sheetTabId: 338353979,  tabTitle: "DeX - Stone Master ", categoryName: "DeX - Stone Master", itemCodePrefix: "STN", layout: "services_stone", itemType: "accessories", enabled: true, sortOrder: 6 },
-  { sheetTabId: 1863704353, tabTitle: "DeX - Handles",       categoryName: "DeX - Handles",      itemCodePrefix: "HDL", layout: "xpress_xpand",  itemType: "accessories", enabled: true, sortOrder: 7 },
+  { sheetTabId: 1433198119, tabTitle: "DeX - Xclusive",      categoryName: "DeX - Xclusive",     itemCodePrefix: "XCL", layout: "xclusive",       itemType: "woodworks",   enabled: true, sortOrder: 3 },
+  { sheetTabId: 1996860450, tabTitle: "DeX - Services",      categoryName: "DeX - Services",     itemCodePrefix: "SRV", layout: "services_stone", itemType: "services",   enabled: true, sortOrder: 4 },
+  { sheetTabId: 818317477,  tabTitle: "DeX - Accessories ",  categoryName: "DeX - Accessories",  itemCodePrefix: "ACC", layout: "accessories",   itemType: "accessories", enabled: true, sortOrder: 5 },
+  { sheetTabId: 15831228,   tabTitle: "DeX -  Lights",       categoryName: "DeX - Lights",       itemCodePrefix: "LGT", layout: "lights",        itemType: "accessories", enabled: true, sortOrder: 6 },
+  { sheetTabId: 338353979,  tabTitle: "DeX - Stone Master ", categoryName: "DeX - Stone Master", itemCodePrefix: "STN", layout: "services_stone", itemType: "accessories", enabled: true, sortOrder: 7 },
+  { sheetTabId: 1863704353, tabTitle: "DeX - Handles",       categoryName: "DeX - Handles",      itemCodePrefix: "HDL", layout: "xpress_xpand",  itemType: "accessories", enabled: true, sortOrder: 8 },
+  { sheetTabId: 1293380484, tabTitle: "DeX- Furniture",      categoryName: "DeX - Furniture",    itemCodePrefix: "FUR", layout: "furniture",     itemType: "furniture",   enabled: true, sortOrder: 9 },
+  { sheetTabId: 994463430,  tabTitle: "DeX - Appliances",    categoryName: "DeX - Appliances",   itemCodePrefix: "APL", layout: "appliances",    itemType: "accessories", enabled: true, sortOrder: 10 },
 ];
 
 /**
@@ -355,7 +358,7 @@ async function copyVersionItemsUnchecked(tx: any, fromVersionId: string, toVersi
       panel_type, panel_type_raw, category_name, category_name_raw, material_type, material_type_raw,
       brand, brand_raw, description, rate, rate_raw, markup, markup_raw, margin, margin_raw,
       selling_price, selling_price_raw, image_url, materials, finishes, specifications, item_type,
-      has_errors, error_details, is_valid, sync_log_id,
+      has_errors, error_details, is_valid, sync_log_id, created_by,
       pricing_version_id, item_code, sheet_tab_id, is_backported, backported_from_version_id,
       backported_by, backported_at
     )
@@ -364,7 +367,7 @@ async function copyVersionItemsUnchecked(tx: any, fromVersionId: string, toVersi
       panel_type, panel_type_raw, category_name, category_name_raw, material_type, material_type_raw,
       brand, brand_raw, description, rate, rate_raw, markup, markup_raw, margin, margin_raw,
       selling_price, selling_price_raw, image_url, materials, finishes, specifications, item_type,
-      has_errors, error_details, is_valid, sync_log_id,
+      has_errors, error_details, is_valid, sync_log_id, created_by,
       ${toVersionId}, item_code, sheet_tab_id, is_backported, backported_from_version_id,
       backported_by, backported_at
     FROM catalog_items
@@ -393,6 +396,10 @@ export interface VersionDiffRow {
   newRate: number | null;
   oldSellingPrice: number | null;
   newSellingPrice: number | null;
+  oldImageUrl: string | null;
+  newImageUrl: string | null;
+  priceChanged: boolean;
+  imageChanged: boolean;
   changePct: number | null;
 }
 
@@ -420,6 +427,7 @@ export async function diffVersions(fromVersionId: string, toVersionId: string): 
              COALESCE(room_type, '') AS room_type,
              MIN(category_name) AS category_name,
              MIN(description)   AS description,
+             MIN(image_url)     AS image_url,
              MAX(rate)          AS rate,
              MAX(selling_price) AS selling_price
       FROM catalog_items
@@ -431,6 +439,7 @@ export async function diffVersions(fromVersionId: string, toVersionId: string): 
              COALESCE(room_type, '') AS room_type,
              MIN(category_name) AS category_name,
              MIN(description)   AS description,
+             MIN(image_url)     AS image_url,
              MAX(rate)          AS rate,
              MAX(selling_price) AS selling_price
       FROM catalog_items
@@ -446,10 +455,16 @@ export async function diffVersions(fromVersionId: string, toVersionId: string): 
       t.rate           AS new_rate,
       f.selling_price  AS old_selling_price,
       t.selling_price  AS new_selling_price,
+      f.image_url      AS old_image_url,
+      t.image_url      AS new_image_url,
+      (f.rate IS DISTINCT FROM t.rate
+        OR f.selling_price IS DISTINCT FROM t.selling_price) AS price_changed,
+      (f.image_url IS DISTINCT FROM t.image_url) AS image_changed,
       CASE WHEN f.item_code IS NULL THEN 'added'
            WHEN t.item_code IS NULL THEN 'removed'
            WHEN f.rate IS DISTINCT FROM t.rate
-             OR f.selling_price IS DISTINCT FROM t.selling_price THEN 'changed'
+              OR f.selling_price IS DISTINCT FROM t.selling_price
+              OR f.image_url IS DISTINCT FROM t.image_url THEN 'changed'
            ELSE 'unchanged' END AS kind
     FROM f FULL OUTER JOIN t
       ON f.item_code = t.item_code AND f.room_type = t.room_type
@@ -482,8 +497,12 @@ export async function diffVersions(fromVersionId: string, toVersionId: string): 
       newRate: r.new_rate,
       oldSellingPrice: r.old_selling_price,
       newSellingPrice: r.new_selling_price,
+      oldImageUrl: r.old_image_url,
+      newImageUrl: r.new_image_url,
+      priceChanged: r.price_changed === true,
+      imageChanged: r.image_changed === true,
       changePct:
-        oldPrice && newPrice && Number(oldPrice) !== 0
+        r.price_changed === true && oldPrice && newPrice && Number(oldPrice) !== 0
           ? Math.round(((Number(newPrice) - Number(oldPrice)) / Number(oldPrice)) * 1000) / 10
           : null,
     };
@@ -711,19 +730,37 @@ export async function updateLiveVersion(options: PublishOptions = {}): Promise<U
       );
     }
 
+    // Guard: do not copy un-coded rows into the live catalog. A null item_code means the
+    // row has never been through Generate Codes, so the diff cannot track it and it would
+    // be invisible to every future comparison. The admin must generate codes and re-sync
+    // the sheet before updating live.
+    const [{ n: nullCodeCount }] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(catalogItems)
+      .where(and(eq(catalogItems.pricingVersionId, draft.id), isNull(catalogItems.itemCode)));
+
+    if (nullCodeCount > 0) {
+      throw new Error(
+        `The Draft contains ${nullCodeCount} item${nullCodeCount === 1 ? '' : 's'} with no item code. ` +
+          `Go to Sheet Wiring → Item Codes, generate codes, then re-sync the sheet before updating the live price list.`
+      );
+    }
+
     // Counted inside the transaction so the audit summary describes exactly what this
     // call applied, not what a preview happened to show a few seconds earlier.
     const countsRes: any = await tx.execute(sql`
       WITH f AS (
         SELECT item_code, COALESCE(room_type, '') AS room_type,
-               MAX(rate) AS rate, MAX(selling_price) AS selling_price
+               MAX(rate) AS rate, MAX(selling_price) AS selling_price,
+               MIN(image_url) AS image_url
         FROM catalog_items
         WHERE pricing_version_id = ${active.id} AND item_code IS NOT NULL
         GROUP BY item_code, COALESCE(room_type, '')
       ),
       t AS (
         SELECT item_code, COALESCE(room_type, '') AS room_type,
-               MAX(rate) AS rate, MAX(selling_price) AS selling_price
+               MAX(rate) AS rate, MAX(selling_price) AS selling_price,
+               MIN(image_url) AS image_url
         FROM catalog_items
         WHERE pricing_version_id = ${draft.id} AND item_code IS NOT NULL
         GROUP BY item_code, COALESCE(room_type, '')
@@ -733,7 +770,11 @@ export async function updateLiveVersion(options: PublishOptions = {}): Promise<U
         COUNT(*) FILTER (WHERE t.item_code IS NULL)::int AS removed,
         COUNT(*) FILTER (
           WHERE f.item_code IS NOT NULL AND t.item_code IS NOT NULL
-            AND (f.rate IS DISTINCT FROM t.rate OR f.selling_price IS DISTINCT FROM t.selling_price)
+            AND (
+              f.rate IS DISTINCT FROM t.rate
+              OR f.selling_price IS DISTINCT FROM t.selling_price
+              OR f.image_url IS DISTINCT FROM t.image_url
+            )
         )::int AS changed
       FROM f FULL OUTER JOIN t
         ON f.item_code = t.item_code AND f.room_type = t.room_type
@@ -764,7 +805,7 @@ export async function updateLiveVersion(options: PublishOptions = {}): Promise<U
       action: 'update_live',
       summary:
         `Updated the live price list ${active.name} in place: ${Number(counts.added)} item(s) added, ` +
-        `${Number(counts.changed)} price(s) changed, ${Number(counts.removed)} removed. ` +
+        `${Number(counts.changed)} catalog item(s) changed, ${Number(counts.removed)} removed. ` +
         `No new version was created — all ${active.name} projects can use these items immediately. ` +
         `Prices already saved on existing quotations are unchanged.`,
       details: {

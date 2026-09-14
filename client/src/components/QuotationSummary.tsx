@@ -2,8 +2,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { useState, useEffect } from "react";
-import type { LineItem, ItemType } from "@/lib/types";
+import type { LineItem, ProjectOffer } from "@/lib/types";
 import { computeQuotationTotals } from "@shared/calculations";
 
 export interface QuotationSummaryProps {
@@ -13,9 +14,12 @@ export interface QuotationSummaryProps {
   onMarkupChange?: (markup: number) => void;
   onDiscountChange?: (discount: number) => void;
   isFinalized?: boolean;
+  offers?: ProjectOffer[];
+  onOfferChange?: (offerId: string, applied: boolean) => void;
+  isOfferUpdating?: boolean;
 }
 
-export default function QuotationSummary({ lineItems, initialMarkup = 0, initialDiscount = 0, onMarkupChange, onDiscountChange, isFinalized = false }: QuotationSummaryProps) {
+export default function QuotationSummary({ lineItems, initialMarkup = 0, initialDiscount = 0, onMarkupChange, onDiscountChange, isFinalized = false, offers = [], onOfferChange, isOfferUpdating = false }: QuotationSummaryProps) {
   const [markup, setMarkup] = useState(initialMarkup);
   const [discount, setDiscount] = useState(initialDiscount);
 
@@ -44,10 +48,12 @@ export default function QuotationSummary({ lineItems, initialMarkup = 0, initial
     woodworksGst, woodworksTotal,
     enablementFeeValue, enablementFeeGst, enablementFeeTotal,
     servicesSubtotal, servicesGst, servicesTotal,
-    accessoriesTotal,
+    accessoriesTotal, furnitureTotal,
     lineItemsSubtotal, totalProjectValue, totalGst, grandTotal,
-    hasWoodworks, hasServices, hasAccessories, hasAnyItems,
-  } = computeQuotationTotals(lineItems, markup, discount);
+    hasWoodworks, hasServices, hasAccessories, hasFurniture, hasAnyItems,
+    offerPercentageDiscount, cashDiscount, finalPayable,
+  } = computeQuotationTotals(lineItems, markup, discount, offers.filter((offer) => offer.isApplied));
+  const visibleOffers = offers.filter((offer) => offer.isStillEligible || offer.isApplied);
 
   return (
     <Card className="sticky top-4" data-testid="card-quotation-summary">
@@ -98,6 +104,43 @@ export default function QuotationSummary({ lineItems, initialMarkup = 0, initial
         )}
 
         {hasAnyItems && <Separator />}
+
+        {visibleOffers.length > 0 && (
+          <>
+            <div className="space-y-3" data-testid="card-eligible-offers">
+              <div>
+                <h4 className="font-medium text-sm text-muted-foreground">Eligible Offers</h4>
+                <p className="text-xs text-muted-foreground">Offers are optional and can be changed until this quotation is finalized.</p>
+              </div>
+              {visibleOffers.map((offer) => (
+                <div key={offer.offerId} className="flex items-start justify-between gap-3 rounded-md border p-3">
+                  <div className="space-y-0.5">
+                    <Label htmlFor={`offer-${offer.offerId}`} className="cursor-pointer text-sm font-medium">
+                      {offer.offerName}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {offer.offerType === "percentage"
+                        ? `${offer.percentageValue}% off GST-inclusive total`
+                        : `Cash discount of ₹${Math.round(offer.cashValue || 0).toLocaleString("en-IN")} after GST`}
+                    </p>
+                    {!offer.isStillEligible && (
+                      <p className="text-xs text-destructive">No longer eligible for the current Woodwork value. Remove it before finalizing.</p>
+                    )}
+                    {offer.isLocked && <p className="text-xs text-muted-foreground">Locked on this generated quotation.</p>}
+                  </div>
+                  <Switch
+                    id={`offer-${offer.offerId}`}
+                    checked={offer.isApplied}
+                    disabled={isFinalized || isOfferUpdating || (offer.isLocked && offer.isApplied) || (!offer.isApplied && !offer.isStillEligible)}
+                    onCheckedChange={(checked) => onOfferChange?.(offer.offerId, checked)}
+                    data-testid={`switch-offer-${offer.offerId}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <Separator />
+          </>
+        )}
 
         {/* Woodworks Section */}
         {hasWoodworks && (
@@ -162,7 +205,7 @@ export default function QuotationSummary({ lineItems, initialMarkup = 0, initial
           </div>
         )}
 
-        {hasServices && hasAccessories && <Separator />}
+        {hasServices && (hasAccessories || hasFurniture) && <Separator />}
 
         {/* Accessories Section */}
         {hasAccessories && (
@@ -177,10 +220,23 @@ export default function QuotationSummary({ lineItems, initialMarkup = 0, initial
           </div>
         )}
 
+        {hasAccessories && hasFurniture && <Separator />}
+        {hasFurniture && (
+          <div className="space-y-2">
+            <h4 className="font-medium text-sm text-muted-foreground">Furniture</h4>
+            <div className="flex justify-between items-center text-sm gap-2">
+              <span className="text-muted-foreground">Total (GST Inclusive)</span>
+              <span className="font-mono" data-testid="text-furniture-total">
+                ₹{Math.round(furnitureTotal).toLocaleString('en-IN')}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Enablement Fee Section - between Accessories and Grand Total */}
         {markup > 0 && hasWoodworks && (
           <>
-            {(hasWoodworks || hasServices || hasAccessories) && <Separator />}
+            {(hasWoodworks || hasServices || hasAccessories || hasFurniture) && <Separator />}
             <div className="space-y-2">
               <h4 className="font-medium text-sm text-muted-foreground">Enablement Fee</h4>
               <div className="flex justify-between items-center text-sm gap-2">
@@ -205,14 +261,14 @@ export default function QuotationSummary({ lineItems, initialMarkup = 0, initial
           </>
         )}
 
-        {(hasWoodworks || hasServices || hasAccessories) && <Separator />}
+        {(hasWoodworks || hasServices || hasAccessories || hasFurniture) && <Separator />}
 
         {/* Final Summary */}
         <div className="space-y-2">
           <div className="flex justify-between items-center text-sm gap-2">
             <span className="text-muted-foreground">Line Items Subtotal</span>
             <span className="font-mono" data-testid="text-line-items-subtotal">
-              ₹{Math.round(woodworksAfterDiscount + servicesSubtotal + accessoriesTotal).toLocaleString('en-IN')}
+                ₹{Math.round(woodworksAfterDiscount + servicesSubtotal + accessoriesTotal + furnitureTotal).toLocaleString('en-IN')}
             </span>
           </div>
           <div className="flex justify-between items-center text-sm gap-2">
@@ -222,15 +278,33 @@ export default function QuotationSummary({ lineItems, initialMarkup = 0, initial
             </span>
           </div>
           <div className="flex justify-between items-center pt-2 gap-2">
-            <span className="font-semibold">Grand Total</span>
+            <span className="font-semibold">GST-inclusive Total</span>
             <span className="font-mono text-2xl font-bold text-primary" data-testid="text-grand-total">
               ₹{Math.round(grandTotal).toLocaleString('en-IN')}
+            </span>
+          </div>
+          {offerPercentageDiscount > 0 && (
+            <div className="flex justify-between items-center text-sm gap-2">
+              <span className="text-muted-foreground">Offer Discount (%)</span>
+              <span className="font-mono text-green-600" data-testid="text-offer-percentage-discount">-₹{Math.round(offerPercentageDiscount).toLocaleString('en-IN')}</span>
+            </div>
+          )}
+          {cashDiscount > 0 && (
+            <div className="flex justify-between items-center text-sm gap-2">
+              <span className="text-muted-foreground">Cash Discount (after GST)</span>
+              <span className="font-mono text-green-600" data-testid="text-cash-discount">-₹{Math.round(cashDiscount).toLocaleString('en-IN')}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center pt-2 border-t gap-2">
+            <span className="font-semibold">Final Payable Amount</span>
+            <span className="font-mono text-2xl font-bold text-primary" data-testid="text-final-payable">
+              ₹{Math.round(finalPayable).toLocaleString('en-IN')}
             </span>
           </div>
         </div>
 
         {/* Empty state */}
-        {!hasWoodworks && !hasServices && !hasAccessories && (
+        {!hasWoodworks && !hasServices && !hasAccessories && !hasFurniture && (
           <div className="text-center text-muted-foreground py-4">
             No items added yet
           </div>

@@ -180,6 +180,7 @@ export default function AddRoomDialog({
                   <SelectContent>
                     <SelectItem value="DeX - Xpress">Xpress</SelectItem>
                     <SelectItem value="DeX - Xpand">Xpand</SelectItem>
+                    <SelectItem value="DeX - Xclusive">Xclusive</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

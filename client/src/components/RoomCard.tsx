@@ -14,8 +14,10 @@ export interface RoomCardProps {
   roomName: string;
   roomType: "Wet / Exposed" | "Dry / Inexposed";
   unitGroupName?: string;
+  variantLabel?: string;
   itemCount: number;
   totalAmount: number;
+  preDiscountAmount: number;
   onClick?: () => void;
   onAddLineItem?: () => void;
   onEdit?: () => void;
@@ -28,8 +30,10 @@ export default function RoomCard({
   roomName,
   roomType,
   unitGroupName,
+  variantLabel,
   itemCount,
   totalAmount,
+  preDiscountAmount,
   onClick,
   onAddLineItem,
   onEdit,
@@ -45,9 +49,16 @@ export default function RoomCard({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
-            <h3 className="font-semibold text-lg truncate" data-testid="text-room-name">
-              {roomName}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-lg truncate" data-testid="text-room-name">
+                {roomName}
+              </h3>
+              {variantLabel && (
+                <Badge variant="outline" className="shrink-0 text-xs font-normal" data-testid="badge-room-variant">
+                  {variantLabel}
+                </Badge>
+              )}
+            </div>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="outline" className="text-xs" data-testid="badge-room-type">
                 {roomType}
@@ -119,13 +130,22 @@ export default function RoomCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
-            {itemCount} {itemCount === 1 ? 'item' : 'items'}
-          </span>
-          <span className="font-mono font-semibold" data-testid="text-room-total">
-            ₹{Math.round(totalAmount).toLocaleString('en-IN')}
-          </span>
+        <span className="text-sm text-muted-foreground">
+          {itemCount} {itemCount === 1 ? 'item' : 'items'}
+        </span>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium">Room Sub Total (After Discount)</span>
+            <span className="font-mono font-semibold" data-testid="text-room-total">
+              ₹{Math.round(totalAmount).toLocaleString('en-IN')}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>Pre-Discount</span>
+            <span className="font-mono" data-testid="text-room-pre-discount">
+              ₹{Math.round(preDiscountAmount).toLocaleString('en-IN')}
+            </span>
+          </div>
         </div>
         {!isFinalized && (
           <Button 

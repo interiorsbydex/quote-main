@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, ArrowLeft, FileDown, Share2, Copy, Check, Link, Loader2, CheckCircle, FileEdit, AlertTriangle, Pencil, Wallet, CreditCard } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +24,9 @@ import PrintableQuotation from "@/components/PrintableQuotation";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Project, Room, LineItem, MaterialSpec, ProjectCredits } from "@/lib/types";
+import type { Project, Room, LineItem, MaterialSpec, ProjectCredits, RoomSubcategory, ProjectOffer } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
+import { computeRoomSubtotalDisplay } from "@shared/calculations";
 
 export default function ProjectDetail() {
   const [, params] = useRoute("/project/:id");
@@ -44,8 +47,12 @@ export default function ProjectDetail() {
   const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
   const [editClientName, setEditClientName] = useState("");
   const [editPid, setEditPid] = useState("");
+  const [editTlId, setEditTlId] = useState("none");
+  const [editBlId, setEditBlId] = useState("none");
+  const [editDmId, setEditDmId] = useState("none");
   const printRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const handleDownloadPdf = async () => {
     if (!projectId) return;
@@ -94,6 +101,19 @@ export default function ProjectDetail() {
     enabled: !!projectId,
   });
 
+  const isAssignmentAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const { data: assignmentUsers = [] } = useQuery<Array<{
+    id: string;
+    username: string;
+    firstName: string | null;
+    lastName: string | null;
+    role: string;
+    cohort: "PD" | "DTL" | null;
+  }>>({
+    queryKey: ["/api/admin/users"],
+    enabled: isAssignmentAdmin,
+  });
+
   const { data: rooms = [] } = useQuery<Room[]>({
     queryKey: ['/api/projects', projectId, 'rooms'],
     enabled: !!projectId,
@@ -104,10 +124,23 @@ export default function ProjectDetail() {
     enabled: !!projectId,
   });
 
-  // The client no longer wants the Material Specification panel shown for XPRESS or XPAND
+  const { data: offerData, isFetching: isOffersFetching } = useQuery<{ woodworkValue: number; offers: ProjectOffer[] }>({
+    queryKey: ['/api/projects', projectId, 'offers'],
+    enabled: !!projectId,
+  });
+
+  const { data: subcategories = [] } = useQuery<RoomSubcategory[]>({
+    queryKey: ['/api/projects', projectId, 'subcategories'],
+    enabled: !!projectId,
+  });
+
+  // The client does not want the Material Specification panel shown for DeX woodworks
   // projects. There is nothing to fetch or render for them, so skip the request entirely
   // rather than fetch data the page will not display.
-  const hideMaterialSpec = project?.defaultCategory === "DeX - Xpress" || project?.defaultCategory === "DeX - Xpand";
+  const hideMaterialSpec =
+    project?.defaultCategory === "DeX - Xpress" ||
+    project?.defaultCategory === "DeX - Xpand" ||
+    project?.defaultCategory === "DeX - Xclusive";
 
   const { data: materialSpecs, isLoading: specsLoading } = useQuery<MaterialSpec>({
     queryKey: [`/api/catalog/material-specs/${project?.defaultCategory || ''}`],
@@ -169,6 +202,7 @@ export default function ProjectDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'rooms'] });
       queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'line-items'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'offers'] });
       setDeleteRoomDialogOpen(false);
       setRoomToDelete(null);
       toast({
@@ -193,6 +227,7 @@ export default function ProjectDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'rooms'] });
       queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'line-items'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'offers'] });
       toast({
         title: "Success",
         description: "Room duplicated successfully",
@@ -232,8 +267,8 @@ export default function ProjectDetail() {
   });
 
   const updateProjectMutation = useMutation({
-    mutationFn: async ({ clientName, pid }: { clientName: string; pid: string }) => {
-      const res = await apiRequest('PATCH', `/api/projects/${projectId}`, { clientName, pid });
+    mutationFn: async ({ clientName, pid, tlId, blId, dmId }: { clientName: string; pid: string; tlId?: string | null; blId?: string | null; dmId?: string | null }) => {
+      const res = await apiRequest('PATCH', `/api/projects/${projectId}`, { clientName, pid, tlId, blId, dmId });
       return res.json();
     },
     onSuccess: () => {
@@ -268,10 +303,15 @@ export default function ProjectDetail() {
         unitType: data.unitType,
         lengthFt: data.lengthFt,
         heightFt: data.heightFt,
+        depthFt: data.depthFt,
         quantity: data.quantity,
         rate: data.rate,
         catalogItemId: data.catalogItemId, // Pass for server-side verification
         itemType: data.itemType, // Pass itemType for GST calculation
+        isComplimentary: data.isComplimentary === true,
+        complimentaryOfferName: data.isComplimentary
+          ? data.complimentaryOfferName?.trim()
+          : undefined,
       });
       return res.json();
     },
@@ -282,6 +322,7 @@ export default function ProjectDetail() {
         queryKey: ['/api/projects', projectId, 'line-items'],
         refetchType: 'all'
       });
+      queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'offers'] });
       queryClient.invalidateQueries({ 
         queryKey: ['/api/projects', projectId, 'rooms'],
         refetchType: 'all'
@@ -317,6 +358,23 @@ export default function ProjectDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId] });
+    },
+  });
+
+  const updateOfferMutation = useMutation({
+    mutationFn: async ({ offerId, applied }: { offerId: string; applied: boolean }) => {
+      const res = await apiRequest('PATCH', `/api/projects/${projectId}/offers/${offerId}`, { applied });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'offers'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Offer not updated",
+        description: error.message || "Unable to update this offer.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -427,11 +485,17 @@ export default function ProjectDetail() {
   // Calculate room totals
   const roomsWithTotals = rooms.map(room => {
     const roomLineItems = lineItems.filter(item => item.roomId === room.id);
-    const total = roomLineItems.reduce((sum, item) => sum + item.amount, 0);
+    const roomSubtotal = computeRoomSubtotalDisplay(roomLineItems, project?.discount || 0);
+    // Room's own style override, falling back to the project default when unset
+    // (mirrors the resolution used on RoomDetail/PrintableQuotation/PDF), stripped
+    // of the "DeX - " prefix for a friendly label next to the room name.
+    const variantLabel = (room.category || project?.defaultCategory || "").replace(/^DeX - /, "");
     return {
       ...room,
       itemCount: roomLineItems.length,
-      totalAmount: total,
+      totalAmount: roomSubtotal.afterDiscount,
+      preDiscountAmount: roomSubtotal.preDiscount,
+      variantLabel,
     };
   });
 
@@ -450,7 +514,16 @@ export default function ProjectDetail() {
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/'} data-testid="button-back">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                window.location.href = project.pid?.trim()
+                  ? `/folder/${encodeURIComponent(project.pid.trim())}`
+                  : "/";
+              }}
+              data-testid="button-back"
+            >
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
@@ -468,6 +541,9 @@ export default function ProjectDetail() {
                     onClick={() => {
                       setEditClientName(project.clientName);
                       setEditPid(project.pid || "");
+                      setEditTlId(project.tlId || "none");
+                      setEditBlId(project.blId || "none");
+                      setEditDmId(project.dmId || "none");
                       setEditProjectDialogOpen(true);
                     }}
                     data-testid="button-edit-project"
@@ -588,8 +664,10 @@ export default function ProjectDetail() {
                       roomName={room.roomName}
                       roomType={room.roomType}
                       unitGroupName={room.unitGroupName || undefined}
+                      variantLabel={room.variantLabel || undefined}
                       itemCount={room.itemCount}
                       totalAmount={room.totalAmount}
+                      preDiscountAmount={room.preDiscountAmount}
                       onClick={() => window.location.href = `/room/${room.id}`}
                       onAddLineItem={() => handleAddLineItem(room.id)}
                       onEdit={() => {
@@ -656,6 +734,9 @@ export default function ProjectDetail() {
               onMarkupChange={(markup) => updateMarkupMutation.mutate(markup)}
               onDiscountChange={(discount) => updateDiscountMutation.mutate(discount)}
               isFinalized={isFinalized}
+              offers={offerData?.offers}
+              onOfferChange={(offerId, applied) => updateOfferMutation.mutate({ offerId, applied })}
+              isOfferUpdating={updateOfferMutation.isPending || isOffersFetching}
             />
           </div>
         </div>
@@ -756,7 +837,7 @@ export default function ProjectDetail() {
           <DialogHeader>
             <DialogTitle>Edit Project Details</DialogTitle>
             <DialogDescription>
-              Update the client name and project ID.
+              Update project details and, for administrators, the assigned team.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -771,6 +852,35 @@ export default function ProjectDetail() {
                 data-testid="input-edit-client-name"
               />
             </div>
+            {isAssignmentAdmin && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {([
+                  ["Team Lead", "tl", editTlId, setEditTlId],
+                  ["Business Lead", "bl", editBlId, setEditBlId],
+                  ["Design Manager", "dm", editDmId, setEditDmId],
+                ] as const).map(([label, role, value, setValue]) => (
+                  <div key={role} className="space-y-2">
+                    <Label htmlFor={`edit-${role}-assignment`}>{label}</Label>
+                    <Select value={value} onValueChange={setValue}>
+                      <SelectTrigger id={`edit-${role}-assignment`} data-testid={`select-project-${role}`}>
+                        <SelectValue placeholder={`Select ${label}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">N/A</SelectItem>
+                        {assignmentUsers.filter((assignmentUser) => assignmentUser.role === role).map((assignmentUser) => (
+                          <SelectItem key={assignmentUser.id} value={assignmentUser.id}>
+                            {assignmentUser.firstName && assignmentUser.lastName
+                              ? `${assignmentUser.firstName} ${assignmentUser.lastName}`
+                              : assignmentUser.username}
+                            {role === "tl" && assignmentUser.cohort ? ` · ${assignmentUser.cohort}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            )}
             <div>
               <Label htmlFor="edit-pid">Project ID (PID)</Label>
               <Input
@@ -798,7 +908,15 @@ export default function ProjectDetail() {
             <Button
               onClick={() => {
                 if (editClientName.trim()) {
-                  updateProjectMutation.mutate({ clientName: editClientName.trim(), pid: editPid.trim() });
+                  updateProjectMutation.mutate({
+                    clientName: editClientName.trim(),
+                    pid: editPid.trim(),
+                    ...(isAssignmentAdmin ? {
+                      tlId: editTlId === "none" ? null : editTlId,
+                      blId: editBlId === "none" ? null : editBlId,
+                      dmId: editDmId === "none" ? null : editDmId,
+                    } : {}),
+                  });
                 }
               }}
               disabled={!editClientName.trim() || updateProjectMutation.isPending}
@@ -852,8 +970,10 @@ export default function ProjectDetail() {
             project={project}
             rooms={rooms}
             lineItems={lineItems}
+            subcategories={subcategories}
             markup={project.markup || 0}
             discount={project.discount || 0}
+            offers={offerData?.offers}
             companySettings={companySettings}
             showDetailedPricing={showDetailedPricing}
           />

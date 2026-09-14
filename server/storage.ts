@@ -6,7 +6,9 @@ import {
   clients,
   projects,
   rooms,
+  roomSubcategories,
   lineItems,
+  catalogItems,
   companySettings,
   type User,
   type InsertUser,
@@ -17,6 +19,8 @@ import {
   type InsertProject,
   type Room,
   type InsertRoom,
+  type RoomSubcategory,
+  type InsertRoomSubcategory,
   type LineItem,
   type InsertLineItem,
   type CompanySettings,
@@ -41,6 +45,7 @@ export interface IStorage {
   getProject(id: string): Promise<Project | undefined>;
   getProjectByShareToken(shareToken: string): Promise<Project | undefined>;
   getProjectsByUser(userId: string): Promise<Project[]>;
+  getProjectsAssignedToRole(userId: string, role: "tl" | "bl" | "dm"): Promise<Project[]>;
   getProjectsByTeam(managerId: string): Promise<Project[]>; // Admin sees own + team's projects
   getAllProjects(): Promise<Project[]>; // Super admin only
   createProject(project: InsertProject): Promise<Project>;
@@ -55,6 +60,13 @@ export interface IStorage {
   updateRoom(id: string, data: Partial<InsertRoom>): Promise<Room | undefined>;
   deleteRoom(id: string): Promise<void>;
   duplicateRoom(roomId: string): Promise<Room>; // Duplicate room with all line items
+
+  // Room sub-category operations (optional grouping layer between a room and its line items)
+  getRoomSubcategory(id: string): Promise<RoomSubcategory | undefined>;
+  getRoomSubcategoriesByRoom(roomId: string): Promise<RoomSubcategory[]>;
+  getRoomSubcategoriesByProject(projectId: string): Promise<RoomSubcategory[]>;
+  createRoomSubcategory(data: InsertRoomSubcategory): Promise<RoomSubcategory>;
+  deleteRoomSubcategory(id: string): Promise<void>; // Ungroups its line items (subcategoryId -> null), does not delete them
 
   // Line item operations
   getLineItem(id: string): Promise<LineItem | undefined>;
@@ -175,6 +187,16 @@ export class DbStorage implements IStorage {
     return db.select().from(projects).where(eq(projects.userId, userId)).orderBy(desc(projects.updatedAt));
   }
 
+  async getProjectsAssignedToRole(userId: string, role: "tl" | "bl" | "dm"): Promise<Project[]> {
+    if (role === "tl") {
+      return db.select().from(projects).where(eq(projects.tlId, userId)).orderBy(desc(projects.updatedAt));
+    }
+    if (role === "bl") {
+      return db.select().from(projects).where(eq(projects.blId, userId)).orderBy(desc(projects.updatedAt));
+    }
+    return db.select().from(projects).where(eq(projects.dmId, userId)).orderBy(desc(projects.updatedAt));
+  }
+
   // Get projects for admin (team manager): their own + their team members' projects
   async getProjectsByTeam(managerId: string): Promise<Project[]> {
     // Get team member IDs
@@ -220,6 +242,34 @@ export class DbStorage implements IStorage {
   }
 
   // Duplicate a project with all its rooms and line items
+  async getRoomSubcategory(id: string): Promise<RoomSubcategory | undefined> {
+    const result = await db.select().from(roomSubcategories).where(eq(roomSubcategories.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getRoomSubcategoriesByRoom(roomId: string): Promise<RoomSubcategory[]> {
+    return db.select().from(roomSubcategories).where(eq(roomSubcategories.roomId, roomId)).orderBy(roomSubcategories.sortOrder, roomSubcategories.createdAt);
+  }
+
+  async getRoomSubcategoriesByProject(projectId: string): Promise<RoomSubcategory[]> {
+    const projectRooms = await this.getRoomsByProject(projectId);
+    if (projectRooms.length === 0) return [];
+    return db.select().from(roomSubcategories)
+      .where(inArray(roomSubcategories.roomId, projectRooms.map((r) => r.id)))
+      .orderBy(roomSubcategories.sortOrder, roomSubcategories.createdAt);
+  }
+
+  async createRoomSubcategory(data: InsertRoomSubcategory): Promise<RoomSubcategory> {
+    const result = await db.insert(roomSubcategories).values(data).returning();
+    return result[0];
+  }
+
+  async deleteRoomSubcategory(id: string): Promise<void> {
+    // The subcategoryId FK is ON DELETE SET NULL, so this automatically ungroups the
+    // subcategory's line items back to "directly under the room" instead of deleting them.
+    await db.delete(roomSubcategories).where(eq(roomSubcategories.id, id));
+  }
+
   async duplicateProject(projectId: string, newUserId: string): Promise<Project> {
     const originalProject = await this.getProject(projectId);
     if (!originalProject) {
@@ -229,7 +279,9 @@ export class DbStorage implements IStorage {
     // Create new project with "(Copy)" appended to client name
     const newProject = await this.createProject({
       userId: newUserId,
+      clientId: originalProject.clientId,
       clientName: `${originalProject.clientName} (Copy)`,
+      pid: originalProject.pid,
       projectType: originalProject.projectType,
       defaultCategory: originalProject.defaultCategory,
       multiStyleEnabled: originalProject.multiStyleEnabled,
@@ -257,23 +309,42 @@ export class DbStorage implements IStorage {
       });
       roomIdMap.set(room.id, newRoom.id);
 
+      // Duplicate this room's sub-categories, keeping an id map for re-attaching items
+      const originalSubcategories = await this.getRoomSubcategoriesByRoom(room.id);
+      const subcategoryIdMap = new Map<string, string>();
+      for (const subcategory of originalSubcategories) {
+        const newSubcategory = await this.createRoomSubcategory({
+          roomId: newRoom.id,
+          name: subcategory.name,
+          sortOrder: subcategory.sortOrder,
+        });
+        subcategoryIdMap.set(subcategory.id, newSubcategory.id);
+      }
+
       // Get and duplicate line items for this room
       const originalLineItems = await this.getLineItemsByRoom(room.id);
       for (const lineItem of originalLineItems) {
         await this.createLineItem({
           roomId: newRoom.id,
           projectId: newProject.id,
+          subcategoryId: lineItem.subcategoryId ? subcategoryIdMap.get(lineItem.subcategoryId) : undefined,
           description: lineItem.description,
           unitType: lineItem.unitType,
           lengthFt: lineItem.lengthFt,
           heightFt: lineItem.heightFt,
+          depthFt: lineItem.depthFt,
           sqft: lineItem.sqft,
           lengthMm: lineItem.lengthMm,
           heightMm: lineItem.heightMm,
+          depthMm: lineItem.depthMm,
           rate: lineItem.rate,
           quantity: lineItem.quantity,
           amount: lineItem.amount,
           itemType: lineItem.itemType,
+          catalogItemCode: lineItem.catalogItemCode,
+          imageUrl: lineItem.imageUrl,
+          isComplimentary: lineItem.isComplimentary,
+          complimentaryOfferName: lineItem.complimentaryOfferName,
         });
       }
     }
@@ -320,23 +391,43 @@ export class DbStorage implements IStorage {
       category: originalRoom.category,
     });
 
+    // Duplicate sub-categories first, keeping a map of old -> new id so line items
+    // can be re-attached to the correct duplicated sub-category below.
+    const originalSubcategories = await this.getRoomSubcategoriesByRoom(roomId);
+    const subcategoryIdMap = new Map<string, string>();
+    for (const subcategory of originalSubcategories) {
+      const newSubcategory = await this.createRoomSubcategory({
+        roomId: newRoom.id,
+        name: subcategory.name,
+        sortOrder: subcategory.sortOrder,
+      });
+      subcategoryIdMap.set(subcategory.id, newSubcategory.id);
+    }
+
     // Duplicate all line items
     const originalLineItems = await this.getLineItemsByRoom(roomId);
     for (const lineItem of originalLineItems) {
       await this.createLineItem({
         projectId: lineItem.projectId,
         roomId: newRoom.id,
+        subcategoryId: lineItem.subcategoryId ? subcategoryIdMap.get(lineItem.subcategoryId) : undefined,
         description: lineItem.description,
         unitType: lineItem.unitType,
         lengthFt: lineItem.lengthFt,
         heightFt: lineItem.heightFt,
+        depthFt: lineItem.depthFt,
         lengthMm: lineItem.lengthMm,
         heightMm: lineItem.heightMm,
+        depthMm: lineItem.depthMm,
         sqft: lineItem.sqft,
         quantity: lineItem.quantity,
         rate: lineItem.rate,
         amount: lineItem.amount,
         itemType: lineItem.itemType,
+        catalogItemCode: lineItem.catalogItemCode,
+        imageUrl: lineItem.imageUrl,
+        isComplimentary: lineItem.isComplimentary,
+        complimentaryOfferName: lineItem.complimentaryOfferName,
       });
     }
 
@@ -346,15 +437,67 @@ export class DbStorage implements IStorage {
   // Line item operations
   async getLineItem(id: string): Promise<LineItem | undefined> {
     const result = await db.select().from(lineItems).where(eq(lineItems.id, id)).limit(1);
-    return result[0];
+    if (!result[0]) return undefined;
+    return (await this.enrichLineItemImages(result))[0];
   }
 
   async getLineItemsByRoom(roomId: string): Promise<LineItem[]> {
-    return db.select().from(lineItems).where(eq(lineItems.roomId, roomId));
+    const items = await db.select().from(lineItems).where(eq(lineItems.roomId, roomId));
+    return this.enrichLineItemImages(items);
   }
 
   async getLineItemsByProject(projectId: string): Promise<LineItem[]> {
-    return db.select().from(lineItems).where(eq(lineItems.projectId, projectId));
+    const items = await db.select().from(lineItems).where(eq(lineItems.projectId, projectId));
+    return this.enrichLineItemImages(items);
+  }
+
+  private async enrichLineItemImages(items: LineItem[]): Promise<LineItem[]> {
+    if (items.length === 0) return items;
+
+    const byProject = new Map<string, LineItem[]>();
+    for (const item of items) {
+      const bucket = byProject.get(item.projectId);
+      if (bucket) bucket.push(item);
+      else byProject.set(item.projectId, [item]);
+    }
+
+    const latestImageByProjectAndCode = new Map<string, string>();
+    for (const [projectId, projectItems] of Array.from(byProject.entries())) {
+      const codes = Array.from(new Set(
+        projectItems
+          .map((item: LineItem) => item.catalogItemCode)
+          .filter((code: string | null): code is string => !!code)
+      ));
+      if (codes.length === 0) continue;
+
+      const [project] = await db
+        .select({ pricingVersionId: projects.pricingVersionId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1);
+      if (!project?.pricingVersionId) continue;
+
+      const currentCatalogRows = await db
+        .select({ itemCode: catalogItems.itemCode, imageUrl: catalogItems.imageUrl })
+        .from(catalogItems)
+        .where(and(
+          eq(catalogItems.pricingVersionId, project.pricingVersionId),
+          inArray(catalogItems.itemCode, codes)
+        ));
+
+      for (const row of currentCatalogRows) {
+        if (row.itemCode && row.imageUrl) {
+          latestImageByProjectAndCode.set(`${projectId}:${row.itemCode}`, row.imageUrl);
+        }
+      }
+    }
+
+    return items.map((item) => ({
+      ...item,
+      imageUrl: item.catalogItemCode
+        ? latestImageByProjectAndCode.get(`${item.projectId}:${item.catalogItemCode}`) || item.imageUrl
+        : item.imageUrl,
+    }));
   }
 
   async createLineItem(lineItem: InsertLineItem): Promise<LineItem> {

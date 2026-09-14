@@ -5,6 +5,7 @@ import { Separator } from "@/components/ui/separator";
 import { format } from "date-fns";
 import { FileText, Clock, AlertCircle } from "lucide-react";
 import { sortLineItemsByCategory } from "@/lib/types";
+import { computeQuotationTotals, computeRoomSubtotalDisplay, type AppliedOfferForCalculation } from "@shared/calculations";
 
 interface SharedLineItem {
   description: string;
@@ -18,12 +19,25 @@ interface SharedLineItem {
   rate: number;
   amount: number;
   itemType: string;
+  imageUrl?: string | null;
+  isComplimentary?: boolean;
+  complimentaryOfferName?: string | null;
+}
+
+interface SharedSubcategory {
+  name: string;
+  lineItems: SharedLineItem[];
 }
 
 interface SharedRoom {
   roomName: string;
   roomType: string;
+  // Full flat list, kept for backward compatibility; grand totals below are computed
+  // from this so sub-categories never affect pricing.
   lineItems: SharedLineItem[];
+  // Optional grouping layer. Empty when the room has no sub-categories.
+  subcategories?: SharedSubcategory[];
+  ungroupedLineItems?: SharedLineItem[];
 }
 
 interface SharedQuoteData {
@@ -34,6 +48,7 @@ interface SharedQuoteData {
   markup: number;
   discount: number;
   createdAt: string;
+  offers?: AppliedOfferForCalculation[];
   rooms: SharedRoom[];
 }
 
@@ -96,46 +111,22 @@ export default function SharedQuote() {
     );
   }
 
-  // Map all 6 categories to 3 GST categories:
-  // - woodworks → woodworks (GST + markup/discount)
-  // - services → services (GST only)
-  // - accessories, handles, lights, stone → accessories (GST inclusive)
-  const categoryTotals = quote.rooms.reduce(
-    (acc, room) => {
-      room.lineItems.forEach((item) => {
-        const rawItemType = item.itemType || "woodworks";
-        let gstCategory: "woodworks" | "services" | "accessories";
-        if (rawItemType === "woodworks") {
-          gstCategory = "woodworks";
-        } else if (rawItemType === "services") {
-          gstCategory = "services";
-        } else {
-          gstCategory = "accessories";
-        }
-        acc[gstCategory] = (acc[gstCategory] || 0) + item.amount;
-      });
-      return acc;
-    },
-    { woodworks: 0, services: 0, accessories: 0 }
-  );
-
-  const woodworksSubtotal = categoryTotals.woodworks;
-  const woodworksDiscountValue = woodworksSubtotal * ((quote.discount || 0) / 100);
-  const woodworksAfterDiscount = woodworksSubtotal - woodworksDiscountValue;
-  const woodworksGst = woodworksAfterDiscount * 0.18;
-  const woodworksTotal = woodworksAfterDiscount + woodworksGst;
-
-  const enablementFeeValue = woodworksSubtotal * (quote.markup / 100);
-  const enablementFeeGst = enablementFeeValue * 0.18;
-  const enablementFeeTotal = enablementFeeValue + enablementFeeGst;
-
-  const servicesSubtotal = categoryTotals.services;
-  const servicesGst = servicesSubtotal * 0.18;
-  const servicesTotal = servicesSubtotal + servicesGst;
-
-  const accessoriesTotal = categoryTotals.accessories;
-
-  const grandTotal = woodworksTotal + servicesTotal + accessoriesTotal + enablementFeeTotal;
+  // Use the same shared total-calculation function as the internal quotation views
+  // (RoomDetail/PrintableQuotation) instead of a second hand-rolled copy, so this
+  // public page can never drift from the internal totals -- including which items
+  // (e.g. Complimentary Offer items) are excluded.
+  // `room.lineItems` is the full flat per-room list (kept for backward compatibility),
+  // so flattening it across rooms gives every line item exactly once.
+  const allLineItems = quote.rooms.flatMap((room) => room.lineItems);
+  const {
+    categoryTotals,
+    woodworksSubtotal, woodworksDiscountValue, woodworksAfterDiscount,
+    woodworksGst, woodworksTotal,
+    enablementFeeTotal,
+    servicesSubtotal, servicesGst, servicesTotal,
+    accessoriesTotal, furnitureTotal,
+    grandTotal, offerPercentageDiscount, cashDiscount, finalPayable,
+  } = computeQuotationTotals(allLineItems, quote.markup || 0, quote.discount || 0, quote.offers);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
@@ -198,61 +189,151 @@ export default function SharedQuote() {
           </CardHeader>
         </Card>
 
-        {quote.rooms.map((room, roomIndex) => (
-          <Card key={roomIndex} className="mb-4" data-testid={`card-room-${roomIndex}`}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">{room.roomName}</CardTitle>
-              <span className="text-sm text-muted-foreground">{room.roomType}</span>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b-2 border-border bg-muted/50">
-                      <th className="text-left py-3 px-4">Description</th>
-                      <th className="text-center py-3 px-2 whitespace-nowrap">
-                        Dimensions ({companySettings?.dimensionDisplayUnit === "mm" ? "mm" : "ft"})
-                      </th>
-                      <th className="text-center py-3 px-2">Qty</th>
-                      <th className="text-right py-3 px-4">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortLineItemsByCategory(room.lineItems).map((item, itemIndex) => {
-                      const hasDimensions = item.lengthFt > 0 && item.heightFt > 0;
-                      const useMm = companySettings?.dimensionDisplayUnit === "mm";
-                      const dimensionDisplay = hasDimensions
-                        ? useMm
-                          ? `${item.lengthMm || Math.round(item.lengthFt * 304.8)} × ${item.heightMm || Math.round(item.heightFt * 304.8)} mm`
-                          : `${item.lengthFt} × ${item.heightFt} ft`
-                        : "N/A";
+        {quote.rooms.map((room, roomIndex) => {
+          const useMm = companySettings?.dimensionDisplayUnit === "mm";
+          const roomSubcategories = room.subcategories?.filter((sc) => sc.lineItems.length > 0) || [];
+          const ungroupedItems = room.subcategories && room.subcategories.length > 0
+            ? (room.ungroupedLineItems || [])
+            : room.lineItems; // Older cached responses / rooms with no sub-categories: everything is "ungrouped"
+          const roomSubtotal = computeRoomSubtotalDisplay(room.lineItems, quote.discount || 0);
 
-                      return (
-                        <tr 
-                          key={itemIndex} 
-                          className={`border-b border-border/50 ${itemIndex % 2 === 0 ? '' : 'bg-muted/20'}`}
-                        >
-                          <td className="py-3 px-4">{item.description}</td>
-                          <td className="text-center py-3 px-2 font-mono whitespace-nowrap">{dimensionDisplay}</td>
-                          <td className="text-center py-3 px-2 font-mono">{item.quantity}</td>
-                          <td className="text-right py-3 px-4 font-mono font-medium">{formatCurrency(item.amount)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-border bg-muted/50">
-                      <td colSpan={3} className="text-right py-3 px-4 font-semibold">Room Subtotal:</td>
-                      <td className="text-right py-3 px-4 font-mono font-bold">
-                        {formatCurrency(room.lineItems.reduce((sum, item) => sum + item.amount, 0))}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+          const renderTable = (items: SharedLineItem[], subtotalLabel: string) => {
+            const sortedItems = sortLineItemsByCategory(items);
+            const subtotal = computeRoomSubtotalDisplay(items, quote.discount || 0);
+            // A complimentary item's ₹0/offer label needs its own column even when no
+            // project-level discount is set, so it isn't hidden.
+            const hasComplimentary = sortedItems.some((item) => item.isComplimentary);
+            const showDiscountCol = (quote.discount || 0) > 0 || hasComplimentary;
+            return (
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-border bg-muted/50">
+                    <th className="text-left py-3 px-4">Description</th>
+                    <th className="text-center py-3 px-2 whitespace-nowrap">
+                      Dimensions ({useMm ? "mm" : "ft"})
+                    </th>
+                    <th className="text-center py-3 px-2">Qty</th>
+                    <th className="text-right py-3 px-4">Amount</th>
+                    {showDiscountCol && <th className="text-right py-3 px-4">Amount After Discount</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedItems.map((item, itemIndex) => {
+                    const hasDimensions = item.lengthFt > 0 && item.heightFt > 0;
+                    const dimensionDisplay = hasDimensions
+                      ? useMm
+                        ? `${item.lengthMm || Math.round(item.lengthFt * 304.8)} × ${item.heightMm || Math.round(item.heightFt * 304.8)} mm`
+                        : `${item.lengthFt} × ${item.heightFt} ft`
+                      : "N/A";
+                    const isWoodwork = (item.itemType || "woodworks") === "woodworks";
+
+                    return (
+                      <tr 
+                        key={itemIndex} 
+                        className={`border-b border-border/50 ${itemIndex % 2 === 0 ? '' : 'bg-muted/20'}`}
+                      >
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            {item.imageUrl && (
+                              <img
+                                src={item.imageUrl}
+                                alt=""
+                                className="h-14 w-14 shrink-0 rounded border object-contain"
+                                loading="lazy"
+                                onError={(event) => { event.currentTarget.style.display = "none"; }}
+                              />
+                            )}
+                            <span>{item.description}</span>
+                          </div>
+                        </td>
+                        <td className="text-center py-3 px-2 font-mono whitespace-nowrap">{dimensionDisplay}</td>
+                        <td className="text-center py-3 px-2 font-mono">{item.quantity}</td>
+                        <td className="text-right py-3 px-4 font-mono font-medium">{formatCurrency(item.amount)}</td>
+                        {showDiscountCol && (
+                          <td className="text-right py-3 px-4 font-mono">
+                            {item.isComplimentary ? (
+                              <>
+                                <div className="text-xs text-muted-foreground font-sans">
+                                  Complimentary{item.complimentaryOfferName ? ` (${item.complimentaryOfferName})` : ''}
+                                </div>
+                                <div className="font-semibold">{formatCurrency(0)}</div>
+                              </>
+                            ) : (quote.discount || 0) > 0 ? (
+                              isWoodwork
+                                ? formatCurrency(item.amount * (1 - (quote.discount || 0) / 100))
+                                : 'Not Applicable'
+                            ) : (
+                              'Not Applicable'
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/50">
+                    <td colSpan={4 + (showDiscountCol ? 1 : 0)} className="py-3 px-4">
+                      <div className="flex justify-end gap-4 font-semibold">
+                        <span>{subtotalLabel} (After Discount):</span>
+                        <span className="font-mono font-bold">{formatCurrency(subtotal.afterDiscount)}</span>
+                      </div>
+                      <div className="flex justify-end gap-4 text-xs text-muted-foreground mt-1">
+                        <span>Pre-Discount:</span>
+                        <span className="font-mono">{formatCurrency(subtotal.preDiscount)}</span>
+                      </div>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            );
+          };
+
+          return (
+            <Card key={roomIndex} className="mb-4" data-testid={`card-room-${roomIndex}`}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">{room.roomName}</CardTitle>
+                <span className="text-sm text-muted-foreground">{room.roomType}</span>
+              </CardHeader>
+              <CardContent>
+                {roomSubcategories.length === 0 ? (
+                  <div className="overflow-x-auto">
+                    {renderTable(room.lineItems, "Room Subtotal")}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {roomSubcategories.map((sc, scIndex) => (
+                      <div key={scIndex}>
+                        <h4 className="font-medium text-sm mb-2">{sc.name}</h4>
+                        <div className="overflow-x-auto">
+                          {renderTable(sc.lineItems, "Subtotal")}
+                        </div>
+                      </div>
+                    ))}
+                    {ungroupedItems.length > 0 && (
+                      <div>
+                        <h4 className="font-medium text-sm mb-2 text-muted-foreground">Other Items</h4>
+                        <div className="overflow-x-auto">
+                          {renderTable(ungroupedItems, "Subtotal")}
+                        </div>
+                      </div>
+                    )}
+                    <div className="space-y-1 pt-2 border-t">
+                      <div className="flex justify-end items-center gap-4">
+                        <span className="font-semibold">Room Sub Total (After Discount)</span>
+                        <span className="font-mono font-bold">{formatCurrency(roomSubtotal.afterDiscount)}</span>
+                      </div>
+                      <div className="flex justify-end items-center gap-4 text-xs text-muted-foreground">
+                        <span>Pre-Discount</span>
+                        <span className="font-mono">{formatCurrency(roomSubtotal.preDiscount)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
 
         <Card className="mt-6" data-testid="card-summary">
           <CardHeader>
@@ -316,6 +397,18 @@ export default function SharedQuote() {
                 </div>
               </>
             )}
+            {categoryTotals.furniture > 0 && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <h4 className="font-medium text-sm text-muted-foreground">Furniture</h4>
+                  <div className="flex justify-between font-medium">
+                    <span>Total (GST Inclusive)</span>
+                    <span className="font-mono">{formatCurrency(furnitureTotal)}</span>
+                  </div>
+                </div>
+              </>
+            )}
 
             {quote.markup > 0 && categoryTotals.woodworks > 0 && (
               <>
@@ -333,9 +426,27 @@ export default function SharedQuote() {
             <Separator />
 
             <div className="flex justify-between items-center pt-2">
-              <span className="font-bold text-lg">Grand Total</span>
+              <span className="font-bold text-lg">GST-inclusive Total</span>
               <span className="font-mono text-2xl font-bold text-primary" data-testid="text-grand-total">
                 {formatCurrency(grandTotal)}
+              </span>
+            </div>
+            {offerPercentageDiscount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span>Offer Discount (%)</span>
+                <span className="font-mono text-green-600">-{formatCurrency(offerPercentageDiscount)}</span>
+              </div>
+            )}
+            {cashDiscount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span>Cash Discount (after GST)</span>
+                <span className="font-mono text-green-600">-{formatCurrency(cashDiscount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center pt-2 border-t">
+              <span className="font-bold text-lg">Final Payable Amount</span>
+              <span className="font-mono text-2xl font-bold text-primary" data-testid="text-final-payable">
+                {formatCurrency(finalPayable)}
               </span>
             </div>
 

@@ -10,6 +10,7 @@ export default function RoomCardExample() {
         unitGroupName="Wardrobe Units"
         itemCount={3}
         totalAmount={125000}
+        preDiscountAmount={140000}
         onClick={() => console.log('Room clicked')}
         onAddLineItem={() => console.log('Add line item clicked')}
       />
@@ -19,6 +20,7 @@ export default function RoomCardExample() {
         roomType="Wet / Exposed"
         itemCount={5}
         totalAmount={280000}
+        preDiscountAmount={300000}
         onClick={() => console.log('Room clicked')}
         onAddLineItem={() => console.log('Add line item clicked')}
       />
