@@ -130,7 +130,7 @@ export function parseTabRows(
   const normalizedHeaders = headers.map((header) => String(header ?? '').toLowerCase().replace(/\s+/g, ' ').trim());
   const headerIndex = (...names: string[]) => normalizedHeaders.findIndex((header) => names.includes(header));
   const requiredHeaders = tab.sheetTabId === HANDLES_SHEET_TAB_ID
-    ? [['brand'], ['product image', 'product imgae'], ['description'], ['rates', 'rate', 'selling value', 'selling price'], ['item code']]
+    ? [['dimension'], ['brand'], ['product image', 'product imgae'], ['description'], ['rates', 'rate', 'selling value', 'selling price'], ['item code']]
     : layout === 'furniture'
       ? [['brand'], ['description'], ['unit'], ['mrp'], ['active']]
       : layout === 'appliances'
@@ -177,10 +177,14 @@ export function parseTabRows(
         roomTypeRaw = null;
         itemCategory = valueAt('work type');
         unitType = valueAt('product code', 'unit type');
-        panelType = valueAt('dimension');
+        // The Handles source has these two headers reversed: the column labelled
+        // Dimension contains 4G/Creatic/EBCO, while the column labelled Brand contains
+        // 96mm/160mm/etc. Keep this explicit tab-specific correction until the Sheet
+        // headers are repaired.
+        brand = valueAt('dimension');
+        panelType = valueAt('brand');
         materialType = valueAt('work type');
         finishesOverride = [...parseMultiSelectCell(valueAt('available finishes'))];
-        brand = valueAt('brand');
         description = valueAt('description');
         sellingPrice = valueAt('rates', 'rate', 'selling value', 'selling price');
         rate = sellingPrice;
