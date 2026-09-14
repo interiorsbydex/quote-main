@@ -3728,15 +3728,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Admin and super_admin both see all projects
       const projectsList = await storage.getAllProjects();
       
-      // Get all line items for these projects
-      let totalRevenue = 0;
-      let totalLineItems = 0;
-      
-      for (const project of projectsList) {
-        const lineItems = await storage.getLineItemsByProject(project.id);
-        totalLineItems += lineItems.length;
-        totalRevenue += lineItems.reduce((sum, item) => sum + item.amount, 0);
-      }
+      const projectFinancials = await Promise.all(projectsList.map(async (project) => {
+        const [lineItems, appliedOffers] = await Promise.all([
+          storage.getLineItemsByProject(project.id),
+          db.select().from(projectOffers).where(eq(projectOffers.projectId, project.id)),
+        ]);
+        return {
+          lineItemCount: lineItems.length,
+          finalPayable: computeQuotationTotals(
+            lineItems,
+            project.markup || 0,
+            project.discount || 0,
+            appliedOffers,
+          ).finalPayable,
+        };
+      }));
+      const totalLineItems = projectFinancials.reduce((sum, project) => sum + project.lineItemCount, 0);
+      const totalRevenue = projectFinancials.reduce((sum, project) => sum + project.finalPayable, 0);
       
       // Count by status
       const statusCounts = projectsList.reduce((acc, project) => {
@@ -3811,8 +3819,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const monthlyData: Record<string, { count: number; value: number }> = {};
       
       for (const project of projects) {
-        const lineItems = await storage.getLineItemsByProject(project.id);
-        const projectValue = lineItems.reduce((sum, item) => sum + item.amount, 0);
+        const [lineItems, appliedOffers] = await Promise.all([
+          storage.getLineItemsByProject(project.id),
+          db.select().from(projectOffers).where(eq(projectOffers.projectId, project.id)),
+        ]);
+        const projectValue = computeQuotationTotals(
+          lineItems,
+          project.markup || 0,
+          project.discount || 0,
+          appliedOffers,
+        ).finalPayable;
         
         totalQuoteValue += projectValue;
         valueByStatus[project.status] = (valueByStatus[project.status] || 0) + projectValue;
