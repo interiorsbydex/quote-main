@@ -223,20 +223,24 @@ export function computePaymentSchedule(grandTotal: number): PaymentSchedule {
     };
   }
 
-  let tokenAdvance = 0;
+  let configuredTokenAdvance = 0;
   let tier = "";
   for (const t of PAYMENT_TIERS) {
     if (grandTotal <= t.maxValue) {
-      tokenAdvance = t.tokenAdvance;
+      configuredTokenAdvance = t.tokenAdvance;
       tier = t.maxValue === 1500000 ? "\u226415L" : t.maxValue === 3000000 ? "15-30L" : ">30L";
       break;
     }
   }
 
-  const preSignoff = Math.round(grandTotal * 0.3) - tokenAdvance;
+  const roundedGrandTotal = Math.round(grandTotal);
+  const preSignoffTranche = Math.round(grandTotal * 0.3);
   const designSignoff = Math.round(grandTotal * 0.3);
-  const retention = RETENTION_AMOUNT;
-  const materialDelivery = Math.round(grandTotal * 0.4) - retention;
+  const materialDeliveryTranche = roundedGrandTotal - preSignoffTranche - designSignoff;
+  const tokenAdvance = Math.min(configuredTokenAdvance, preSignoffTranche);
+  const preSignoff = preSignoffTranche - tokenAdvance;
+  const retention = Math.min(RETENTION_AMOUNT, materialDeliveryTranche);
+  const materialDelivery = materialDeliveryTranche - retention;
   const total = tokenAdvance + preSignoff + designSignoff + materialDelivery + retention;
 
   return {
