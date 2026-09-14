@@ -2047,9 +2047,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const companySettingsData = await storage.getCompanySettings();
 
-      const portalLineItems = await storage.getLineItemsByProject(credits.projectId);
-      const portalTotals = computeQuotationTotals(portalLineItems, project.markup || 0, project.discount || 0);
-      const paymentSchedule = computePaymentSchedule(portalTotals.grandTotal);
+      const [portalLineItems, appliedOffers] = await Promise.all([
+        storage.getLineItemsByProject(credits.projectId),
+        db.select().from(projectOffers).where(eq(projectOffers.projectId, credits.projectId)),
+      ]);
+      const portalTotals = computeQuotationTotals(
+        portalLineItems,
+        project.markup || 0,
+        project.discount || 0,
+        appliedOffers,
+      );
+      const paymentSchedule = computePaymentSchedule(portalTotals.finalPayable);
 
       res.json({
         clientName: project.clientName,
@@ -3310,15 +3318,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Project not found" });
       }
 
-      const rooms = await storage.getRoomsByProject(req.params.projectId);
-      const lineItems = await storage.getLineItemsByProject(req.params.projectId);
-
-      // Calculate totals
-      const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
-      const markupValue = subtotal * ((project.markup || 0) / 100);
-      const totalWithMarkup = subtotal + markupValue;
-      const gstAmount = totalWithMarkup * 0.18;
-      const grandTotal = totalWithMarkup + gstAmount;
+      const [rooms, lineItems, appliedOffers] = await Promise.all([
+        storage.getRoomsByProject(req.params.projectId),
+        storage.getLineItemsByProject(req.params.projectId),
+        db.select().from(projectOffers).where(eq(projectOffers.projectId, req.params.projectId)),
+      ]);
+      const totals = computeQuotationTotals(
+        lineItems,
+        project.markup || 0,
+        project.discount || 0,
+        appliedOffers,
+      );
 
       // Group line items by room
       const roomsWithItems = rooms.map(room => ({
@@ -3333,13 +3343,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         project,
         rooms: roomsWithItems,
         summary: {
-          subtotal,
+          subtotal: totals.lineItemsSubtotal,
           markupPercentage: project.markup || 0,
-          markupValue,
-          totalWithMarkup,
+          markupValue: totals.enablementFeeValue,
+          totalWithMarkup: totals.totalProjectValue,
           gstPercentage: 18,
-          gstAmount,
-          grandTotal,
+          gstAmount: totals.totalGst,
+          grandTotal: totals.grandTotal,
+          offerPercentageDiscount: totals.offerPercentageDiscount,
+          cashDiscount: totals.cashDiscount,
+          finalPayable: totals.finalPayable,
         },
       });
     } catch (error: any) {
