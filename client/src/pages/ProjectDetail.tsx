@@ -308,6 +308,10 @@ export default function ProjectDetail() {
         rate: data.rate,
         catalogItemId: data.catalogItemId, // Pass for server-side verification
         itemType: data.itemType, // Pass itemType for GST calculation
+        isComplimentary: data.isComplimentary === true,
+        complimentaryOfferName: data.isComplimentary
+          ? data.complimentaryOfferName?.trim()
+          : undefined,
       });
       return res.json();
     },
@@ -851,9 +855,9 @@ export default function ProjectDetail() {
             {isAssignmentAdmin && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {([
-                  ["TL", "tl", editTlId, setEditTlId],
-                  ["BL", "bl", editBlId, setEditBlId],
-                  ["DM", "dm", editDmId, setEditDmId],
+                  ["Team Lead", "tl", editTlId, setEditTlId],
+                  ["Business Lead", "bl", editBlId, setEditBlId],
+                  ["Design Manager", "dm", editDmId, setEditDmId],
                 ] as const).map(([label, role, value, setValue]) => (
                   <div key={role} className="space-y-2">
                     <Label htmlFor={`edit-${role}-assignment`}>{label}</Label>

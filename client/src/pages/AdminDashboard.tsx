@@ -573,7 +573,17 @@ export default function AdminDashboard() {
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <Badge variant="secondary">
-                                {u.role === "super_admin" ? "Super Admin" : u.role === "admin" ? "Admin" : "User"}
+                                {u.role === "super_admin"
+                                  ? "Super Admin"
+                                  : u.role === "admin"
+                                    ? "Admin"
+                                    : u.role === "tl"
+                                      ? "Team Lead"
+                                      : u.role === "bl"
+                                        ? "Business Lead"
+                                        : u.role === "dm"
+                                          ? "Design Manager"
+                                          : "Designer"}
                               </Badge>
                               <Badge variant="outline">
                                 {u.projectCount} {u.projectCount === 1 ? "project" : "projects"}

@@ -15,7 +15,8 @@ export const sessions = pgTable(
 );
 
 // Users table with username/password authentication
-// Role hierarchy: super_admin > admin (team manager) > user (team member)
+// Administrative roles are super_admin/admin; operational assignment roles are
+// tl (Team Lead), bl (Business Lead), and dm (Design Manager).
 // Status: 'pending' (created by admin, awaiting first login) or 'active' (has logged in)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -26,7 +27,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: text("role").notNull().default("user"), // 'super_admin', 'admin', or 'user'
+  role: text("role").notNull().default("user"), // 'super_admin', 'admin', 'user', 'tl', 'bl', or 'dm'
   cohort: text("cohort"), // TL cohort: 'PD' or 'DTL'; null for users outside a TL cohort
   status: text("status").notNull().default("active"), // 'pending' or 'active'
   managerId: varchar("manager_id").references((): any => users.id, { onDelete: "set null" }), // Team manager reference

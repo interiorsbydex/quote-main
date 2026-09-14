@@ -197,7 +197,7 @@ export interface QuotationSummary {
   grandTotal: number;
 }
 
-// User role hierarchy: super_admin > admin (team manager) > user (team member)
+// Administrative roles are super_admin/admin; assignment roles are tl, bl, and dm.
 export type UserRole = "super_admin" | "admin" | "user" | "tl" | "bl" | "dm";
 
 export interface User {
