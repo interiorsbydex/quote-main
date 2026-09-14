@@ -1,0 +1,195 @@
+Yes, this transcript is more than sufficient. It gives enough context to write a very clear, structured spec for developers and to derive the concrete fixes needed in the UI, data model, and filtering logic.[1]
+
+Below is how this can be framed for the dev team.
+
+***
+
+## 1. Room-level actions
+
+- In the proposal detail view, for each **room/space** (e.g., “Kitchen – wet/exposed”, “Dry kitchen”, “Master Bedroom”), the user needs the ability to **delete** and ideally **duplicate** that room.[1]
+- Currently, delete/duplicate are possible only at the **proposal level**, not at room level, which makes it impossible to remove a mistakenly created room.[1]
+
+**Dev requirement:**  
+Add per-room actions (at least “Delete room”; optionally “Duplicate room”) in the room list / room header inside a proposal.
+
+***
+
+## 2. Project style and categories (Express / Expand)
+
+- For a **residential** project, the only valid style options should be **Express** and **Expand**; things like accessories, services, lights, stone, handles are not styles but **categories** under a style.[1]
+- In future, new styles like “Exclusive” may be added, but accessories/services/lights/stone/handles must always remain subcategories, not top-level style types.[1]
+- In the admin/project list, it should be visible whether each project is **Express** or **Expand**, to easily count how many quotes of each type exist.[1]
+
+**Dev requirement:**  
+- Restrict style list for residential to “Express” and “Expand” now, with option to add new styles later.  
+- Ensure accessories/services/lights/stone/handles are treated as **content categories under a style**, not as styles themselves.  
+- Surface style (Express/Expand/…) in project summary/admin tables.
+
+***
+
+## 3. Kitchen wet/exposed not mapped in Expand
+
+- When creating a room under **Expand → Kitchen → Wet/Exposed**, no unit types/line items show up (“No unit types are available”).[1]
+- The same kitchen wet/exposed works fine under **Express**, and other kitchen variants (e.g., dry/inexposed) work under Expand.[1]
+
+**Dev requirement:**  
+Check mapping for **Expand → Kitchen → Wet/Exposed** and link it to the correct unit types/line items (similar to Express and to other kitchen spaces).
+
+***
+
+## 4. Line-item selection flow (Woodwork)
+
+Current behavior for woodwork (e.g., wardrobes, base storage):
+
+- User selects **unit type** (e.g., “Base storage unit”, “Wardrobe”), then immediately sees a long **description** dropdown mixing many variants and even unrelated unit types in some cases.[1]
+- Filtering is partially fixed, but still some incorrect or extra descriptions appear; and the flow jumps directly to “Description” instead of forcing selection of finish and handle first.[1]
+
+Desired behavior:
+
+1. Step 1: Select **unit type** (e.g., Base storage / Wardrobe / Tall storage / Wall storage).[1]
+2. Step 2: Select **finish** (dropdown named **“Select finish”**) – values like:  
+   - Smooth finish  
+   - Glossy finish  
+   - Smooth finish with glass shutter (different glass variants)  
+   - Glossy finish with glass shutter, etc.  
+   The client will provide a **cleaned list** of valid finish options (they want many existing rows/columns like carcass, BWP, shutter HDF, etc., removed from the user-facing selection).[1]
+3. Step 3: Select **handle** – dropdown like:  
+   - Basic handle  
+   - Finger groove  
+   - G-profile handle  
+   This step is mandatory because finish + handle combination determines cost.[1]
+4. Step 4: System then shows **only those descriptions** that match the chosen unit type + finish + handle (e.g., “Smooth finish – basic handle – base storage”).[1]
+5. Step 5: User enters **dimensions and quantity** (length, height, quantity).[1]
+
+**Dev requirement:**  
+- Change UI flow: `Unit type → Finish → Handle → Description → Dimensions`.  
+- Implement filtering on the description list by `unitTypeId`, `finishId`, `handleId`.  
+- Make sure only matching line items appear; no unrelated unit types or finishes in that dropdown.
+
+***
+
+## 5. Fields to hide in line items
+
+- For normal woodwork line items, dimensions (length, height, quantity) are fine, but the user wants to **hide** “Rate” and “Sqft area” in the line-item form; they should not be editable or visible to the end user.[1]
+- The summary calculations (line item total, subtotal, discount, GST, grand total) are correct and should stay.[1]
+- For **product-like items** (accessories, some stones, some lights), **dimensions should not exist at all**, only quantity, because cost is pre-defined per piece.[1]
+
+**Dev requirement:**  
+- Remove/hide editable “Rate” and “Sqft” fields from the add/edit line-item UI; keep them internal.  
+- For product-type categories, completely remove length/height fields; leave only quantity.  
+- Ensure cost is computed correctly based on quantity only for those categories.
+
+***
+
+## 6. Express vs Expand behavior inside rooms
+
+- In Express projects with multi-style preferences enabled, the category selection (Express/Expand) is working, but the **unit type filtering** still shows unrelated units (e.g., user selects Wardrobe but sees base storage, wall storage, tall storage also).[1]
+- After unit type + finish + handle, only matching wardrobe descriptions should appear.[1]
+
+**Dev requirement:**  
+Apply the same filtering logic as in section 4 to Express: unit type strictly controls which descriptions appear.
+
+***
+
+## 7. Accessories behavior
+
+Issues:
+
+- When “Accessories” is selected as the top-level category, the system still asks for **room type, room details, dimensions**, which are not needed.[1]
+- For accessories like “Detergent holder” or “Cargo dish drainer set”, the line-item filtering is almost correct: selecting “Detergent holder” shows only those items, but in “Cargo dish drainer” only some sizes show, likely due to merged rows or incomplete mapping.[1]
+- Dimensions (length/height) currently affect cost, which is wrong for accessories; cost should be fixed per item.[1]
+
+Desired behavior:
+
+- For accessories:  
+  - No room-type specific extra fields; just choose accessory category and product, then quantity.  
+  - All valid SKUs (including size variants like 600 mm / 900 mm) must appear in the list.  
+  - Price must not change with length/height; only quantity should affect total.[1]
+
+**Dev requirement:**  
+- Create a simplified accessories flow: `Category (Accessories) → Unit type (e.g., Detergent holder, Cargo drainer, Dustbin) → Description (SKU) → Quantity`.  
+- Ensure line-item mapping includes all size variants (check wherever rows are merged in source sheet; client will fix Excel if needed).  
+- Remove dimensions from accessories and compute total = unit price × quantity.
+
+***
+
+## 8. Services (civil / painting, etc.)
+
+Issues:
+
+- When adding **services** under a space, the UI currently shows only a few items like Premium Emulsion, Tractor Emulsion, and they appear at the wrong level.[1]
+- The hierarchy should be:  
+  1) Work type (e.g., Painting, Plumbing, Electrical, etc.)  
+  2) Category under that work type (e.g., Premium emulsion, Tractor emulsion, etc.)  
+  3) Description (full text “Supply and application of premium emulsion paint …”).[1]
+- Many civil service line items are not visible at all despite existing in the master sheet.[1]
+
+**Dev requirement:**  
+- Implement a two-level selection for services: `Work type → Work category → Description`.  
+- Fix mappings so all civil service line items become selectable under the correct work type/category.
+
+***
+
+## 9. Category selection inside a space
+
+- Currently, to add different types of work (woodwork, accessories, civil, lights, stone), the user is forced to create **separate spaces** each time (e.g., one space for woodwork, another for stone, another for lights).[1]
+- Desired: under one space (e.g., “Master Bedroom”), after clicking “Add line item”, the first dropdown should be **category**: Woodwork / Accessories / Civil / Lights / Stone, etc.[1]
+- Once category is chosen, the category-specific flow (woodwork vs accessories vs services vs stone vs lights) should appear.[1]
+
+**Dev requirement:**  
+- Add a “Category” selection before unit type in the line-item flow, so each space can contain multiple categories of work.  
+- Keep the style (Express/Expand) at project level, and make categories independent under that style.
+
+***
+
+## 10. Stone (Quartz) behavior
+
+- For quartz: current UI asks for **length and height**, and uses them in cost calculation, which is wrong because the costing is per slab / per number.[1]
+- When user leaves both length and height as 1, the cost matches the expected slab cost from the sheet; when they change dimensions, the cost becomes incorrect.[1]
+
+**Dev requirement:**  
+- For quartz line items, treat them as quantity-based products: remove length/height fields and keep only quantity.  
+- Ensure price is computed as `unitPrice * quantity`.  
+- Confirm mapping so the chosen SKU (e.g., Costa Beige) matches the correct price from the master.[1]
+
+***
+
+## 11. Lights behavior
+
+- For lights categories (e.g., “Cabinet spotlight”, “Oreo” series), there is a mismatch between the number of SKUs in the master sheet and what appears in the description dropdown.[1]
+- Example: “Cabinet spotlight” has six rows in the sheet, but only three appear in the UI; “Oreo” shows more rows than expected.[1]
+
+**Dev requirement:**  
+- Verify mapping for each lights unit type (Cabinet spotlight, Oreo, etc.) so count and list of SKUs in UI exactly match the master sheet.  
+- Apply the same product-like logic as accessories: typically quantity-only costing, no length/height.
+
+***
+
+## 12. Performance concern
+
+- The user notes that loading is **a little slow** and wants to know whether this is expected for test versus production.[1]
+
+**Dev requirement:**  
+- Profile the relevant pages (project creation, add room, add line item) to check for slow queries or excessive data loads.  
+- Share a quick note with expected performance after optimization (e.g., target load times).
+
+***
+
+If you want, the next step can be a tighter, ticket-style breakdown (Jira / Linear-ready) with acceptance criteria per module (Rooms, Line-item selection, Accessories, Services, Stone, Lights), but the transcript is already sufficient to do the implementation planning.[1]
+
+[1](comet://newtab/)
+[2](https://www.meity.gov.in/static/uploads/2025/02/d60485e4181a949761bd4d4b6ab2799e.pdf)
+[3](https://ffsc.in/2024/ncvet-approved/L5_Interior%20Designer/PH_English/Level%205%20PH%20Interior%20Designer%20Updated.pdf)
+[4](https://www.omrglobal.com/services/industry-reports)
+[5](https://netspublic.grc.nasa.gov/main/WFF%20Expansion%20preDraft%20EA%203-18-09%20Complete.pdf)
+[6](https://vyaparapp.in/quotation-formats/interior)
+[7](https://civilsupplieskerala.gov.in/images/pdf/analytics_extension.pdf)
+[8](https://dzylo.com/blog/interior-quotation-templates-excel-download/)
+[9](https://en.wikipedia.org/wiki/Artificial_intelligence)
+[10](https://www.ndmc.gov.in/public_notice/RFP%20for%20CCC%20part%201_26-4-2017_F.pdf)
+[11](https://mydomastudio.com/interior-design-quotation-format/)
+[12](https://internshala.com/fresher-jobs/eir-growth-astrologer-success-south-india-jobs-in-bangalore/)
+[13](https://www.proposify.com/blog/how-to-write-a-software-proposal)
+[14](https://www.keralaartisans.com/rp/docs/1609697650501169.pdf)
+[15](https://taurusinteriors.co.uk/wp-content/uploads/2020/03/Express-Kitchens-Brochure-Web-Low-Res.pdf)
+[16](https://openasset.com/resources/engineering-proposals/)

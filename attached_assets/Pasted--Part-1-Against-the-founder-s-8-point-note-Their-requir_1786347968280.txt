@@ -1,0 +1,46 @@
+✅ Part 1 — Against the founder's 8-point note
+#	Their requirement	Covered?	How
+1	Generic engine, unlimited versions, no code changes per revision	✅	Versions are data, not code. Admin creates them via UI
+2	Name, Created Date, Effective Date, Status (Draft/Active/Archived); one Active only	✅	All four fields stored. Publishing atomically archives the predecessor
+3	New quotes auto-use Active; users cannot pick	✅	Server stamps it. No selector exists in the UI at all
+4	Quote permanently stores its version; never auto-switches	✅	Locked column on the project, never rewritten
+5	Edits, additions, removals, measurement/design/sign-off revisions all keep original version	✅	Wizard and all catalog lookups are scoped to the project's version
+6	Inactive version → no new quotes; existing keep working	✅	Archived versions are excluded from new project assignment only
+7	Users can't select; admins create/activate/archive	✅	Enforced on both client and server
+8	Revise = create → import → activate, no developer	⚠️	True for prices. Was NOT true for new tabs — now fixed (see Problem 2)
+✅ Part 2 — Your voice note, permutation by permutation
+Your scenario	What happens
+Only one tab changes	Tick that tab in the sync picker. Other 6 tabs in the Draft untouched
+Only 20% of items change	Sync pulls them into Draft. Other 80% carry forward unchanged
+Change 30–40 items → auto V2?	No. Stays in Draft. No version created
+Then change 1 more item → V3?	No. Same Draft. Still no version
+20% now, 20% in six months	Both accumulate in the same Draft → one Publish → one version
+One sheet or many databases?	One sheet. One Draft. Many frozen snapshots inside the app
+Can they update a particular version?	Draft: unlimited. Active: audited amend. Archived: never (that's the legal record)
+Sheet edits pile up and cause confusion	Impossible — sheet edits are invisible until Publish, and Preview shows exactly what will change
+Your core fear is structurally eliminated: the number of versions equals the number of times someone clicks Publish. Never the number of edits.
+
+🔴 Part 3 — Three real problems the stress test found
+Problem 1: Item identity is broken (most serious)
+To diff versions and carry items forward, the system must answer "is this the same item as last version?" Right now it can't reliably:
+
+sheet_row_id is just the row number, and it restarts on every tab. Across 2,222 items there are only 634 distinct values — Xpress row 5 and Xpand row 5 collide.
+Row numbers shift when anyone inserts or deletes a row mid-tab. Insert one row at the top of Xpress and all 273 items below look "changed."
+Matching on description + tab + room type + unit type + brand gives 2,171 unique out of 2,222 — 51 genuine duplicates remain.
+Without fixing this, your change preview would show hundreds of false changes and backporting could grab the wrong item. Fix included in the plan as step 1.
+
+Problem 2: New product lines needed a developer
+The sync has the 7 tab names hardcoded. If DeX launches "DeX - Glass" next year, the sync would ignore it or error — violating the founder's point 8. Now fixed: tab discovery becomes dynamic.
+
+Problem 3: No rollback
+If an admin publishes a bad V3 (wrong prices pulled from a half-edited sheet), there was no way back. Now added: a Revert action that re-activates the previous version.
+
+Also hardened: version-scoped caching (the current cache is one global object — it would have leaked V2 prices into V1 projects), a concurrency guard so two admins can't collide mid-publish, and confirmation that markup/margin/selling price are all versioned, not just rate.
+
+One decision needed, and it's the important one:
+
+To fix item identity, can we add an "Item Code" column to your Google Sheet?
+How should we handle item identity?
+Add an Item Code column — we'll auto-generate all 2,222 codes, you paste them in once (recommended, most reliable)
+Anything else?
+item code is good.. but will it also generate for newly added items automatically? 

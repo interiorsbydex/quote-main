@@ -1,0 +1,489 @@
+0:01
+Hi team. So let's skip this um four
+0:05
+sheets right now. The economy light
+0:06
+premium, premium and luxury. What we are
+0:09
+what we are actually going to work on
+0:11
+right now uh with the new costing is
+0:14
+this uh Dex Express expand and then
+0:18
+services accessories terms and
+0:21
+conditions. This terms and conditions is
+0:23
+still not filled. I'll fill it soon but
+0:25
+I'll also tell you how I want this to be
+0:27
+displayed. So it is uh pretty much the
+0:31
+same uh you know set of columns that we
+0:35
+have created for this particular thing.
+0:37
+But why a new sheet is because we have
+0:39
+reworked on the costing on the uh on the
+0:44
+uh list of line items and all those
+0:46
+things which is why there's a new sheet
+0:48
+that has been created. However, uh there
+0:53
+are a few set of instructions that I
+0:55
+wanted to give to how the software has
+0:58
+to uh look like from what I previously
+1:01
+told. Of course, uh uh you know that is
+1:04
+also very similar. First is the someone
+1:06
+has to log in like I had given in my
+1:09
+previous video. Someone has to log in
+1:11
+and then now that we are completely
+1:13
+entering into B2C, we have team members
+1:16
+who are logging in instead of
+1:18
+architects.
+1:20
+So the login should be super admin
+1:23
+should have a common access to all the
+1:25
+login that are uh being given to uh
+1:29
+people and then uh the uh login access
+1:33
+for individual should be uh one should
+1:36
+not be able to see the others. So let's
+1:39
+have the hierarchy as super admin admin
+1:42
+and then users. So admin will be that
+1:45
+particular team manager. So any four
+1:47
+team members that comes under that
+1:49
+particular team manager's login that
+1:51
+team manager should be able to see all
+1:54
+the team members uh you know activities
+1:58
+uh let's say the quotes or whatever uh
+2:01
+so uh I'll I'll also draft this uh and
+2:04
+give it as a document for your reference
+2:06
+but I'm just explaining
+2:08
+uh and once that is uh done for let's if
+2:12
+we have to talk about each individual
+2:14
+login now there are There are going to
+2:16
+be no logo on the corners or anything
+2:18
+like that. It's just going to be the
+2:20
+company's logo uh which is interiors
+2:22
+byex. And uh what is going to happen is
+2:26
+um if someone directly logs in they'll
+2:29
+just log in enter into the platform give
+2:32
+all the inputs and then they'll be able
+2:34
+to generate a code link. So this is how
+2:37
+it is going to be like. And uh if let's
+2:40
+say someone creates a project and they
+2:43
+select the filter express right so they
+2:47
+will only be able to so over here we
+2:50
+have given right so express expand
+2:52
+exclusive let's ignore about this
+2:54
+exclusive thing right now because we
+2:56
+have not created the set of uh costing
+2:58
+for it we are only focusing on express
+3:00
+and expand right now. So let's say
+3:02
+someone creates this uh uh you know
+3:05
+project under this express filter. They
+3:08
+should only be able to see the costing
+3:11
+that is entered in this sheet. Be it
+3:14
+costing be it line item or whatever
+3:16
+whatever they should not be able to uh
+3:20
+see anything else beyond this in terms
+3:22
+of the uh modular costing. So this
+3:25
+express and expand is the modular
+3:27
+costing. This accessories and services
+3:30
+is common costing which will be visible
+3:33
+in express expand exclusive because all
+3:36
+these are common right any any so
+3:39
+basically this is the modular costing
+3:41
+the services is the civil the fall
+3:42
+ceiling electrical and all those that
+3:44
+costing and then accessories is the
+3:47
+internal accessories that's that's used
+3:49
+in projects. So this is also common this
+3:51
+is also common this is also common only
+3:53
+these two varies. So someone selects
+3:56
+express they should be able to see this
+3:59
+and then if they go to services they
+4:01
+should be able to see all the services
+4:03
+accessories all the accessories terms
+4:05
+and conditions it's all the same for
+4:07
+both express and expand right so
+4:12
+uh this is this is how it is uh drafted
+4:17
+uh the the express filter is selected it
+4:20
+should only these set of line items
+4:22
+should be visible right and Then when it
+4:26
+comes to expand it is again the same
+4:29
+thing. So they select the expand filter
+4:32
+they should only be able to see the set
+4:34
+of line items that's given here. And one
+4:37
+should not be able to skip in between um
+4:41
+I mean swap in between the project from
+4:44
+expand to express.
+4:47
+If let's say in a single project um one
+4:52
+customer wants to go with uh the express
+4:55
+variant for uh their wardrobes and
+4:58
+expand variant for their kitchen. They
+5:01
+should not be able to do that in that
+5:05
+particular quotation. What they'll have
+5:07
+to do is they'll have to create two
+5:09
+different quotations. one quotation for
+5:12
+wardrobes which is in this variant and
+5:14
+one quotation for kitchen which is in
+5:17
+the other variant. So in a single
+5:19
+quotation they cannot add one light line
+5:23
+item from this variant and one line item
+5:25
+from this variant. I hope I'm making
+5:28
+this uh very clear right and underneath
+5:33
+these woodworks right the express or
+5:35
+expand. So basically the overall total
+5:38
+calculation like I had explained uh last
+5:40
+time with the prolands website is we
+5:43
+will have uh uh woodworks once again
+5:49
+let's say
+5:51
+total on
+5:54
+woodworks
+5:56
+and then
+5:59
+GST
+6:02
+grand hotel right
+6:05
+likewise is
+6:09
+total on
+6:13
+civil services
+6:16
+GST and grand total.
+6:19
+Likewise,
+6:21
+total on
+6:24
+accessories.
+6:27
+There should be no visible GST or grand
+6:30
+total for accessories because
+6:33
+accessories comes with an inclusive cost
+6:36
+of GST transportation everything. So
+6:39
+total on woodworks would be X number
+6:42
+let's say 10 lakhs GST should be
+6:48
+yeah GST should be a stand
+6:52
+a standard of 18%.
+6:56
+So this let's keep it in a way that
+6:59
+nobody is able to edit. And then the
+7:04
+grand total would be a sum of these. The
+7:08
+grand total on good works,
+7:15
+right? And let's say civil service
+7:19
+is a sum of two lakhs again the same
+7:24
+18%.
+7:26
+So grand total would be a sum of these
+7:30
+two
+7:32
+and then accessories let's say 50,000.
+7:37
+So beneath should be a total
+7:41
+project value
+7:44
+which is a sum of this
+7:50
+this
+7:53
+and this
+7:56
+and then total GST value should be a sum
+8:03
+of
+8:05
+this
+8:07
+and this
+8:09
+so
+8:11
+grand total should be a sum of
+8:16
+these two. Why this step is because I
+8:20
+don't want uh so GST is something that's
+8:23
+that we cannot help with. So I don't
+8:25
+want people to get this included on the
+8:28
+project cost and you know I don't want
+8:30
+it to look uh exorbitant. So that's why
+8:34
+I've clearly split it. So total project
+8:36
+value, total GST value, grand total and
+8:40
+from this grand total only the payment
+8:42
+terms has to be derived. I'll I'll also
+8:45
+add the payment terms in the uh
+8:48
+instruction document.
+8:50
+But I hope uh this is clear. I am just
+8:53
+highlighting
+8:55
+this separately for your reference. I'm
+8:57
+not sure if I can keep it in the sheet
+9:00
+or not, but I am just keeping it for
+9:03
+your reference and highlighting it. If
+9:05
+if required you can of course delete it.
+9:08
+Right? So this is this is how the
+9:10
+payment terms must be calculated and
+9:12
+this is how I wanted it to be displayed
+9:15
+underneath the woodworks. Once
+9:17
+everything is selected in the uh expand
+9:20
+and they're uh you know moving to
+9:22
+services before they move to services
+9:24
+they get this total on woodworks. So as
+9:27
+they select each line item and as they
+9:29
+give the sizes let this uh you know keep
+9:32
+getting calculated and then likewise for
+9:34
+civil uh services once they are done
+9:37
+selecting the line items uh let this be
+9:40
+displayed accessories likewise and once
+9:43
+um the the the user gives uh you know
+9:47
+quotation complete let it calculate
+9:49
+these and then we'll be able to share it
+9:52
+with the payment terms and terms and
+9:54
+conditions Right. Uh yeah. So this is
+9:59
+all about it. When it comes to
+10:01
+accessories, one more important thing
+10:03
+that I wanted to tell was of course like
+10:06
+I said this is common for these
+10:08
+accessories are common for all these
+10:12
+variants. There's no restriction on
+10:14
+that. But one thing is I want the
+10:17
+accessories to be displayed with the
+10:20
+product image as well. This is uh for
+10:24
+better clarity of the customer. You have
+10:27
+to let me know if it is possible. So I
+10:30
+have attached the project im product
+10:32
+image here. If you want I can also
+10:34
+attach the link of the product image. So
+10:37
+you can directly
+10:39
+uh you know take a look at it and then
+10:41
+see if it's able to be entered.
+10:44
+And then the description is here. the
+10:47
+costing of the same it is inclusive of
+10:49
+installation GST and transportation
+10:52
+right and then when it comes to services
+10:55
+yeah this is how it is same set of
+10:57
+columns there's no change on the columns
+10:59
+on all these across all these sheets and
+11:03
+then there is this uh costing that's
+11:06
+been mentioned so the unit should also
+11:08
+be mentioned someone should be able to
+11:10
+give the let's say they select this
+11:12
+particular line item the unit is the
+11:14
+default thing that will get displayed
+11:16
+paid by itself. The selling price is a
+11:18
+default thing. They'll only have to give
+11:20
+the uh uh number of uh either the if
+11:24
+it's in numbers, they should be able to
+11:27
+enter one or two or three. If it's in
+11:29
+square feet, they should be able to
+11:30
+enter the length and uh breadth. Yeah.
+11:35
+So, this is how it is calculated.
+11:39
+So, I I hope I'm keeping it clear.
+

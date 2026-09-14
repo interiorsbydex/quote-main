@@ -1,0 +1,107 @@
+SPK_1
+0:00
+Hi Pranesh.
+
+SPK_1
+0:01
+Now the query that we have is in market.
+
+SPK_1
+0:05
+The prices have increased, the base prices have increased.
+
+SPK_1
+0:09
+So we are also designing to increase our prices for a few elements.
+
+SPK_1
+0:15
+And what is the issue that we are facing with this is for a few clients we would have already given the quote, right?
+
+SPK_1
+0:24
+And they would have.
+
+SPK_1
+0:25
+A few clients would have booked.
+
+SPK_1
+0:26
+A few clients will be considering us and wouldn't have booked, but will potentially be booking this month, next month and all those.
+
+SPK_1
+0:37
+So for clients who have already booked with us and for clients whom we have already given the quote, right, we cannot increase the price because receiving a booking advance means we'll have to work on the same price or giving a quotation means like our quotation terms and conditions itself says this price will be remaining the same for the next 28 days and for a few clients and all, even though they have booked with us by the month of March, April and all, the handover will happen only by say September, October, by that time.
+
+SPK_1
+1:14
+So because they have paid a booking advance, we cannot increase the code now.
+
+SPK_1
+1:18
+But for the upcoming clients we can give a new quote.
+
+SPK_1
+1:23
+For the ones whom we haven't even quoted yet, we can have the revised quote prices in this, in the platform.
+
+SPK_1
+1:31
+So now if I change the base price on the main Excel sheet, it will get changed on all the quotations, right?
+
+SPK_1
+1:39
+That will, that will create a major confusion.
+
+SPK_1
+1:43
+So is there a possibility where we can create version two of this quotation?
+
+SPK_1
+1:51
+So people can choose like for all new quotations they can choose v2 and for all the existing codes, let's say there is a client who has already booked and then they are design booked two months back and then their design sign off is happening.
+
+SPK_1
+2:06
+If the court has to, if they have to add one or two more line items, they will generally rework on the code, right?
+
+SPK_1
+2:14
+Then on reworking on the code the cost should not escalate.
+
+SPK_1
+2:18
+They should only be reworking on the line items.
+
+SPK_1
+2:20
+So for such clients, team can use version 1 which is the original cost that we have right now.
+
+SPK_1
+2:28
+And for the new clients, can we be able to use the version 2 which is the new cost that we are going to have, you know, with the increased base price and all those.
+
+SPK_1
+2:42
+So is it possible to do this V1, V2 or.
+
+SPK_1
+2:46
+Because this is how the previous software that we used, you know, will have the, the.
+
+SPK_1
+2:52
+That will.
+
+SPK_1
+2:53
+I showed you prolans, right?
+
+SPK_1
+2:54
+That will have a feature like v1, v2 and we'll have, we'll be able to do that.
+
+SPK_1
+3:05
+So please check and let me know on this pranesh.

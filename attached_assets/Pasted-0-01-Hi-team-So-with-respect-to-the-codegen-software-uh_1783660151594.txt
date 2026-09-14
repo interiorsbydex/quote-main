@@ -1,0 +1,198 @@
+0:01
+Hi team. So with respect to the codegen software uh there are a couple of um
+0:08
+changes that has to be done. Um one is that
+0:13
+uh say for example if I open this quote whenever
+0:19
+uh let's say I give the enablement fee as 12% and enter the discount as 25% and
+0:27
+if I share the link with the client I'm just opening the
+0:34
+link over here it is
+0:39
+reflecting as 25% discount plus enablement fee 12%. But supposedly
+0:46
+if I am just uh changing the enablement fee to zero and increasing the discount
+0:54
+to 30. The same link is actually getting uh
+1:01
+updated here as well. Let me just refresh it.
+1:08
+it is becoming 30 and the enablement fee has disappeared.
+1:14
+Why this is a threat is because uh designer uh can actually get uh the
+1:21
+quotation approved for 12% enablement and 25% discount. And uh this this
+1:29
+approval if after given by the manager when they are sharing it across with the
+1:34
+client if they change it here there is no uh track of change or there is no um
+1:42
+uh you know hold for us that someone even if they change it here once the
+1:46
+code is sent to the client that link will stay the same that that is how it
+1:50
+should be like actually. So whenever someone has uh shared across
+1:56
+the court link uh once the uh link is generated and shared across this should
+2:03
+act like a PDF but opening on a link no matter whatever changes someone else
+2:09
+does over here they'll not be able to uh get it reflected on this particular
+2:15
+link. how they can uh share uh um a redefined scope of work or changed uh
+2:24
+things is once they are regenerating a link at that point in time this link
+2:31
+should become like it always becomes it'll become invalid and the new link
+2:37
+should only reflect. So this is a major thing that has to be fixed. Uh that is
+2:44
+one and uh secondly
+2:51
+whenever someone is sharing a quote in the form of a PDF right
+2:59
+so the the current issue our clients are facing now it's is that uh inside living
+3:05
+and dining people are not able to fetch what is what unless otherwise they give
+3:12
+a detail held uh you know read through all the quot all the line item. So what
+3:17
+we could do is if we could just highlight the ones. So if we tried
+3:23
+making this bold in the Excel but even if we make it bold over there it's not
+3:28
+reflecting here. So whichever line items let's say either if we change color the
+3:34
+color change reflects here or uh if we make that bold if the bold
+3:41
+reflects here that format reflects here it would be great. What we will do is
+3:45
+we'll do all these wall panel base storage, curved shape storage, open
+3:50
+storage, aluminum profile shutter, all these things. We will uh either mention
+3:55
+it in a different color or we will make it bold just so inside the living unit
+4:01
+the client will know they are they have all of these things and if they wanted
+4:05
+to read the details of it they can just go through the details of it in the same
+4:10
+line. So this is uh and this applies across all the things like even in fact
+4:17
+for that matter for civil so it's pretty confusing for them. So if we could just
+4:23
+uh do that it'll be great. I mean whatever we we'll take care of whatever
+4:28
+has to be done on bold but the bold is bold or color changes not reflecting on
+4:33
+the software that is the secondary concern. And third thing is that what
+4:39
+happens is right now how we are actually sharing the uh proposal is say for
+4:46
+example uh if this is how we are sharing the
+4:53
+proposal. uh we are attaching it to a pitch
+5:00
+presentation that we have a PDF and then inside the
+5:06
+pitch presentation we attach a link and if someone clicks the uh link over here
+5:12
+it leads to the uh proposal but uh how I prefer it to be is like when we are
+5:20
+sharing the code if let's Say instead of the code reflecting
+5:27
+like this if it can reflect like a pitch presentation itself. For example, I
+5:34
+actually got a quote from Thrillophilia which is a travel company and this is
+5:39
+the uh pitch presentation along with the code that I got. So this was for a trip
+5:46
+to Kenya. So they have beautifully mentioned Nanda's Kenya trip which is
+5:51
+immediately making it personalized and they have attached some photos of
+5:58
+Kenya. This can be our first card where we can you know say uh we can mention
+6:05
+the name for example color is um home quotation uh something like that and
+6:12
+background we can just uh you know add some random interior images it need not
+6:18
+be very specific and they have added one card about
+6:23
+thrillophilia and their itinary. So over here there is this break up of the
+6:29
+costing and over here is the uh full lightenerary. This this entire page can
+6:34
+be so with the first page can be similar like uh personalized name and details of
+6:41
+the code and then background images and then about dex and then uh below we can
+6:48
+have uh you know the quotation like this one exactly reflecting over here.
+6:56
+Uh all these can uh can reflect and on top of it here the overall to quote cost
+7:03
+can reflect like whatever is sliced off can be the before discount amount uh and
+7:10
+whatever is displayed and highlighted can be the after discount amount and
+7:14
+throughout we can have this thing and so this is just a feedback thing. We can
+7:21
+probably uh keep it over here or we can decide uh
+7:26
+you know to keep it or not keep it. And then what is inside the package is can
+7:32
+be our Thompson conditions. And uh we can add if there are any more
+7:38
+details that has to be added. There's also a popup. We can even do that. I I I
+7:43
+by mistake closed it. We can even probably do that like proceed uh uh
+7:49
+further some CTA button and then press from every corner is their testimonial.
+7:55
+We can have it here. Uh a live testimonial
+8:01
+again what our customers say why choose thrillophilia
+8:07
+and then know your destination expert. Uh so this is about the person who is
+8:14
+hosting uh or who the guide for the trip right in this place we can have the
+8:20
+designer's name and this detail if it can be looped along with the designer's
+8:26
+login can be fetched through the uh you know designer's login and then payment
+8:31
+options cancellation and refunds all these thing if we could prepare a pitch
+8:37
+presentation like this nothing like that I I mean if we if we can just get it web
+8:43
+based because this this again irrespective of uh the amount of efforts
+8:49
+we have put this again looks very um simple because it's being sent in a PDF
+8:56
+format and this one is just click to the uh click the link right thing instead of
+9:01
+that if it's in a web page itself and if all these details if it's in a live web
+9:07
+page it can be even nice we can even fill the uh you know web page very
+9:12
+nicely. So if we could do that it would be great. So there are three things that
+9:17
+I have spoken about right now. One is uh once uh the code link is generated it
+9:23
+should act like a PDF and it should not uh you know change as things are changed
+9:28
+here. It should only uh remain constant and if someone has to change the share
+9:34
+the changed code they should only regenerate a link. That is one thing and
+9:39
+uh secondarily uh the
+9:45
+PDF which I said it has to be highlighted over here. So in Excel if we
+9:50
+bold or change the color of something it should also reflect on this. Um that is
+9:56
+second and third is it should come like a pitch presentation like this. So
+10:02
+please let me know on these things these three things. Thank you.

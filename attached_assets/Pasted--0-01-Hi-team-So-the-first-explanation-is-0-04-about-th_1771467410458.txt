@@ -1,0 +1,371 @@
+
+
+
+0:01
+Hi team. So the first explanation is
+0:04
+about the credit system that uh we were
+0:08
+working on. How we have right now worked
+0:10
+on is over here. So I'll just tell my
+0:13
+assumption of how the credit system has
+0:16
+actually been been worked on at the
+0:18
+moment. Over here it is mentioned as
+0:20
+designed credits. The total uh first
+0:22
+thing is it is shown in rupees uh total
+0:25
+used and available. So if I go over here
+0:28
+to manage
+0:30
+and if I say add credits and let's say
+0:35
+if I'm adding 1,000
+0:37
+for initial
+0:41
+payment and I'm not adding the
+0:42
+reference.
+0:45
+So this is how it is getting added to.
+0:49
+And if I
+0:52
+create
+0:54
+the milestone
+0:56
+over here when we are creating the
+0:58
+milestone. So this milestone should be a
+1:01
+drop-down. I'll explain what these
+1:04
+drop-downs are. But this milestone
+1:05
+should be a drop-down. And if I select
+1:07
+let's say design, so these will be the
+1:10
+milestones. Uh site documentation,
+1:12
+layout finalization, design
+1:14
+finalization,
+1:15
+uh validation, final sign off. These are
+1:18
+the only milestones that must be
+1:20
+displayed as drop-down over here. And
+1:23
+when we display these these credits,
+1:26
+auto credit deduction is something let's
+1:28
+say when someone selects site
+1:29
+documentation automatically it should
+1:32
+reflect here as 150 and let's ignore
+1:36
+this.
+1:38
+So if we are going back over here
+1:44
+let's say
+1:47
+it is approved and total is 1,000 but
+1:51
+then used is still zero but we had
+1:55
+mentioned as 150 credits. Okay I am
+1:58
+submitting it for approval and I'm
+2:00
+approving it by myself because it is a
+2:04
+admin portal.
+2:07
+So if I go over here, okay, so total
+2:10
+used is 150, available is 850. This
+2:12
+looks perfect. But what we'll have to do
+2:14
+over here is I don't want it to be a
+2:16
+manual entry. These are the mandatory
+2:19
+milestone dropdowns and auto deductions
+2:23
+that should come. Let's say after this,
+2:26
+right? 850 credits are used. there is
+2:28
+150 that we have kept as a buffer
+2:30
+because the auto credit upon advanced
+2:34
+payment should be 1,000 credits that
+2:37
+that is to be allocated. Uh what I mean
+2:40
+by this is
+2:43
+let's say we are adding credits over
+2:45
+here right and this is an users page
+2:47
+prasad test is the client's name we are
+2:50
+adding credits again this this drop-down
+2:53
+should come first this should go second
+2:56
+and the first drop-down is project
+2:59
+initiation
+3:00
+and the stage is upon advanced payment
+3:03
+this is an internal thing the request
+3:04
+should go to admin and allocated credit
+3:07
+should be 1,000 so The project
+3:09
+initiation is the first uh drop-down
+3:12
+that should be there. And when someone
+3:14
+clicks project initiation, this credit
+3:17
+should be automatically filled as 1,000
+3:19
+credits and someone should request for
+3:21
+add credit. So it gets added like this
+3:24
+upon the admin's approval. So this is
+3:27
+one thing and the second thing is after
+3:29
+adding those,000 credits for each of
+3:32
+these stages auto deduction will happen
+3:35
+and overall 850 credits would have been
+3:38
+used and we have a buffer of 150 credits
+3:41
+at the moment. How these 150 credits
+3:44
+should be used after this is upon upon
+3:47
+using exhausting 850 credits. This is
+3:50
+how the drop-down should be. So you will
+3:52
+have to have a drop-down of all these
+3:55
+things plus these two things. So layout
+3:58
+change per room, design revision per
+4:00
+room. So let's say they are in the uh
+4:05
+design finalization milestone, right?
+4:08
+But they are not moving forward to the
+4:10
+validation. Over here the client is
+4:12
+asking for a layout change or a design
+4:15
+revision. What the designer will
+4:17
+actually do is select the drop-down as
+4:19
+design revision per room and add this 50
+4:23
+credits. So what naturally happens is
+4:26
+here instead of 850 because he has added
+4:30
+or he has done an additional change this
+4:33
+now is becoming 900 credits. So
+4:36
+automatically like this the,000 credits
+4:39
+can be utilized but if they are also
+4:41
+using lesser than this it's okay.
+4:45
+And what happens is upon exhaustion of
+4:49
+this complete 1,000 credits this follow
+4:53
+request type two is this is the type two
+4:56
+this is called as project topup over
+4:59
+here
+5:01
+when
+5:02
+let's say we are having add credits
+5:05
+option right as I told you the first
+5:08
+option is project initiation the second
+5:11
+option that we should have in this
+5:12
+description is project topup So this
+5:16
+project topup the designer will use upon
+5:18
+the uh exhaustion of this total,000
+5:21
+credits that is available. And what the
+5:24
+designer will do is they will request
+5:27
+for and this project topup automatically
+5:30
+should allocate 500 credits and not more
+5:33
+than this and they should enter um you
+5:37
+know let's say we have it as project top
+5:41
+up here. It should automatically get
+5:44
+reflected as 500 and they should be able
+5:47
+to add the credits.
+5:55
+Once the credits are added,
+6:00
+one second.
+6:03
+Okay. First let me Okay. Yeah. So
+6:07
+the,500 total credits are,500
+6:11
+out of this
+6:13
+let's say
+6:16
+we have exhausted all the
+6:19
+already we have exhausted 150 we have
+6:21
+exhausted the rest 850 as well.
+6:29
+So what happens is okay my first
+6:32
+question is why is the uh 500 credits
+6:35
+that we added extra did not come for
+6:37
+approval is it because it's an admin
+6:40
+portal or will it not come for approval
+6:42
+to anybody if it is not coming for
+6:44
+approval to anybody again this is
+6:46
+something that we'll have to rectify
+6:48
+because any credits that's required
+6:50
+extra apart from uh the first allocated
+6:53
+thousand credits first allocated
+6:55
+thousand credits also they'll ask for
+6:56
+approval approval and on top of it if
+6:58
+they need 500 more credits as well they
+7:00
+should be asking for approval and what
+7:03
+happens over here is now since the
+7:07
+designer has already used so,500 credits
+7:11
+has been allocated 1,000 is already used
+7:14
+only 500 is available they should they
+7:17
+will only be able to again select the
+7:20
+drop-downs from any of these uh things
+7:23
+only. So any of these um five drop-downs
+7:28
+or these two drop-downs
+7:30
+uh because let's say the designer is uh
+7:34
+coming up and until here and has
+7:36
+exhausted all the,000 credits and the
+7:38
+client was ready to make a payment top
+7:41
+up. So the client made that payment top
+7:43
+up. This becomes 1,500 credits for the
+7:46
+designer. The designer still will be
+7:48
+able to do only you know layout change
+7:52
+per room or design revision per room and
+7:55
+the uh uh the credit should get deducted
+7:59
+again as per so the same system should
+8:02
+follow this is how the credit system has
+8:04
+to work like and what I meant by credit
+8:08
+is this is the uh gamma platform where
+8:12
+this is how the credits are visible it's
+8:14
+not rupees because if it's mentioned as
+8:17
+rupees the client will again be getting
+8:19
+confused like are you charging me 1,000
+8:21
+rupees 500 rupees so that's not what we
+8:24
+want an actual credit system like how a
+8:27
+lot of these AI platforms have right now
+8:30
+this is exactly how we wanted it to look
+8:32
+like and yeah I think I've fairly
+8:36
+explained to how it has to work like
+8:39
+with all the drop downs and everything
+8:42
+uh yeah that's
