@@ -32,8 +32,8 @@ const row = [
   "AL 02",
   "Cabinet handle",
   "SS Brush, Black, Matt Rose Gold",
-  "96mm",
   "4G",
+  "96mm",
   image,
   "Cabinet Handle AL-02",
   844,
@@ -72,6 +72,17 @@ assert.equal(missingRateHeader.items.length, 0);
 assert.equal(missingRateHeader.errors[0]?.severity, "error");
 assert.match(missingRateHeader.errors[0]?.message ?? "", /Required column\(s\) missing: rates/);
 
+const missingBrandSourceHeader = parseTabRows(
+  handles as any,
+  "DeX - Handles",
+  [row],
+  { syncLogId: null, pricingVersionId: "test-version" },
+  headers.map((header) => header === "Dimension" ? "Size" : header),
+);
+assert.equal(missingBrandSourceHeader.items.length, 0);
+assert.equal(missingBrandSourceHeader.errors[0]?.severity, "error");
+assert.match(missingBrandSourceHeader.errors[0]?.message ?? "", /Required column\(s\) missing: dimension/);
+
 const xpress = DEFAULT_SHEET_TABS.find((tab) => tab.sheetTabId === 1463070649);
 assert(xpress, "Xpress tab configuration is missing");
 const xpressRow = [
@@ -90,4 +101,5 @@ assert.equal(parsedXpress.items[0].sellingPrice, 0);
 
 console.log("PASS Handles header mapping");
 console.log("PASS malformed Handles header rejection");
+console.log("PASS missing Handles brand-source header rejection");
 console.log("PASS Xpress rate fallback mapping");
