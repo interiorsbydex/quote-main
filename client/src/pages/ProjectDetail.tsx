@@ -27,6 +27,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Project, Room, LineItem, MaterialSpec, ProjectCredits, RoomSubcategory, ProjectOffer } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { computeRoomSubtotalDisplay } from "@shared/calculations";
+import { format } from "date-fns";
 
 export default function ProjectDetail() {
   const [, params] = useRoute("/project/:id");
@@ -308,10 +309,6 @@ export default function ProjectDetail() {
         rate: data.rate,
         catalogItemId: data.catalogItemId, // Pass for server-side verification
         itemType: data.itemType, // Pass itemType for GST calculation
-        isComplimentary: data.isComplimentary === true,
-        complimentaryOfferName: data.isComplimentary
-          ? data.complimentaryOfferName?.trim()
-          : undefined,
       });
       return res.json();
     },
@@ -572,6 +569,9 @@ export default function ProjectDetail() {
                 <ProjectCatalogExtras projectId={project.id} />
               </div>
               <p className="text-sm text-muted-foreground">{project.projectType}</p>
+              <p className="text-xs text-muted-foreground" data-testid="text-project-metadata">
+                Created by {project.createdByName || "Unknown"} · Created {format(new Date(project.createdAt), "dd MMM yyyy")}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -855,9 +855,9 @@ export default function ProjectDetail() {
             {isAssignmentAdmin && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {([
-                  ["Team Lead", "tl", editTlId, setEditTlId],
-                  ["Business Lead", "bl", editBlId, setEditBlId],
-                  ["Design Manager", "dm", editDmId, setEditDmId],
+                  ["TL", "tl", editTlId, setEditTlId],
+                  ["BL", "bl", editBlId, setEditBlId],
+                  ["DM", "dm", editDmId, setEditDmId],
                 ] as const).map(([label, role, value, setValue]) => (
                   <div key={role} className="space-y-2">
                     <Label htmlFor={`edit-${role}-assignment`}>{label}</Label>

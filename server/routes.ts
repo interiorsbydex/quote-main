@@ -1197,7 +1197,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!project) {
         return res.status(404).json({ error: "Project not found" });
       }
-      res.json(project);
+      const creator = await storage.getUser(project.userId);
+      const createdByName = creator
+        ? [creator.firstName, creator.lastName].filter(Boolean).join(" ") || creator.username
+        : null;
+      res.json({ ...project, createdByName });
     } catch (error: any) {
       console.error("Error fetching project:", error);
       res.status(500).json({ error: error.message || "Failed to fetch project" });
@@ -1208,6 +1212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/projects", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.session.userId!;
+      const role = req.session.role || "user";
       const { clientId, tlId: _tlId, blId: _blId, dmId: _dmId, ...restBody } = req.body;
       const normalizedPid = typeof restBody.pid === "string" ? restBody.pid.trim() : "";
 
@@ -1245,7 +1250,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Every project is pinned to the version that was live when it was created.
       let project;
       try {
-        project = await createProjectWithActiveVersion(validated);
+        project = await createProjectWithActiveVersion({
+          ...validated,
+          // Assignment-role dashboards are keyed by their dedicated assignment
+          // columns rather than project ownership. A TL creating a project must
+          // therefore assign it to themselves or it disappears from their own list.
+          ...(role === "tl" ? { tlId: userId } : {}),
+        });
       } catch (e: any) {
         if (e.message === "NO_ACTIVE_PRICING_VERSION") {
           return res.status(503).json({

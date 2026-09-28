@@ -1,0 +1,20 @@
+CONTEXT: We're building a new "Appliances" Service Type, available across all variants (Xpress, Xpand, Xclusive). It follows this cascading flow: Project Variant → Service Type (Appliances) → Brand → Work Type → Category → Sub Category → Dimension → Description (auto) → Quantity → Unit (auto) → Product Image (auto) → Price (auto). Master data lives in Google Sheet tab GID [INSERT APPLIANCES TAB GID].
+
+OBJECTIVE: Build the Appliances flow exactly as follows:
+1. Add "Appliances" as a new Service Type option alongside Woodwork and Accessories.
+2. Brand selection (e.g., Bosch, Elica, Faber, Hafele, Siemens, LG, Samsung, IFB, Other) — filtered from the master sheet.
+3. Work Type selection (Kitchen, Utility, Bathroom, Living, Other Home, Home Automation) — determines available Categories.
+4. Category selection, dynamically filtered by selected Work Type (e.g., Kitchen → Hob, Chimney, Refrigerator, Microwave, Oven, Dishwasher, Water Purifier, Coffee Machine, Wine Cooler, Other).
+5. Sub Category, dynamically filtered by selected Category (e.g., Hob → Built-in/Freestanding; Chimney → Wall Mounted/Island/Slanting/Straight Line).
+6. Dimension selection from predefined options mapped per product (e.g., 60cm, 75cm, 90cm, 120cm).
+7. Description auto-populates from the master data based on the full selection chain — no manual typing allowed.
+8. Quantity is a manual numeric entry.
+9. Unit auto-populates from master data Column I based on the selected item — not manually selectable.
+10. Product Image auto-populates from master data Column J.
+11. Price auto-populates using the same pricing logic currently used for Accessories and Stone.
+
+SCOPE: This is a new module — build it as its own cascading-dropdown flow reading from the Appliances master tab. Do not modify Woodwork, Accessories, Stone, or Handles logic; only reuse their existing pricing/discount/GST calculation pattern where explicitly noted (pricing logic only).
+
+CONSTRAINTS: Before building, confirm the exact column layout of the Appliances master tab (which columns hold Brand, Work Type, Category, Sub Category, Dimension, Description, Unit, Image, Price) so the cascading dropdowns pull from the right places.
+
+DONE WHEN: I can go through the full cascading flow (Brand → Work Type → Category → Sub Category → Dimension), the description/unit/image/price all auto-populate correctly with no manual entry, and the item adds correctly to a quote with correct pricing, reflected in Dashboard, PDF, and Quotation Link.

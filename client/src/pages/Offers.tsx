@@ -90,7 +90,7 @@ export default function Offers() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Plus className="h-5 w-5" /> Create Offer</CardTitle>
             <CardDescription>
-              Offers use the <strong>Offer Product</strong> category and become available when a project’s Woodwork value (before GST) is within the selected range.
+              Offers use the <strong>Offer Product</strong> category and become available when a project’s Woodwork value (after discount and before GST) is within the selected range.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -121,11 +121,11 @@ export default function Offers() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label htmlFor="offer-minimum">Minimum Woodwork value (₹)</Label>
+                <Label htmlFor="offer-minimum">Minimum Woodwork value (after discount and before GST) (₹)</Label>
                 <Input id="offer-minimum" type="number" min="0" value={minWoodworkValue} onChange={(event) => setMinWoodworkValue(event.target.value)} data-testid="input-offer-minimum" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="offer-maximum">Maximum Woodwork value (₹, optional)</Label>
+                <Label htmlFor="offer-maximum">Maximum Woodwork value (after discount and before GST) (₹, optional)</Label>
                 <Input id="offer-maximum" type="number" min="0" value={maxWoodworkValue} onChange={(event) => setMaxWoodworkValue(event.target.value)} placeholder="No maximum" data-testid="input-offer-maximum" />
               </div>
             </div>

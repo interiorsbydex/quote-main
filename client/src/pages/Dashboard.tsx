@@ -314,13 +314,7 @@ export default function Dashboard() {
     return Array.from(grouped.entries()).map(([label, folders]) => ({ label, folders }));
   }, [projectFolders, projectPeople]);
 
-  const dashboardRoleLabel = user?.role === "tl"
-    ? "Team Lead"
-    : user?.role === "bl"
-      ? "Business Lead"
-      : user?.role === "dm"
-        ? "Design Manager"
-        : null;
+  const dashboardRoleLabel = user?.role === "tl" ? "Team Lead" : user?.role === "bl" ? "BL" : user?.role === "dm" ? "DM" : null;
 
   return (
     <div className="min-h-screen bg-background">

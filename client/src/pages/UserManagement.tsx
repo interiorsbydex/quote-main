@@ -137,14 +137,6 @@ export default function UserManagement() {
 
   const handleSaveEdit = () => {
     if (userToEdit) {
-      if (editRole === "tl" && editCohort === "none") {
-        toast({
-          title: "Team Lead cohort required",
-          description: "Choose PD or DTL for a Team Lead",
-          variant: "destructive",
-        });
-        return;
-      }
       updateUserMutation.mutate({
         userId: userToEdit.id,
         data: {
@@ -180,14 +172,6 @@ export default function UserManagement() {
       toast({
         title: "Error",
         description: "Password must be at least 6 characters",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (newUserRole === "tl" && newUserCohort === "none") {
-      toast({
-        title: "Team Lead cohort required",
-        description: "Choose PD or DTL for a Team Lead",
         variant: "destructive",
       });
       return;
@@ -237,13 +221,13 @@ export default function UserManagement() {
       case "admin":
         return <Badge variant="secondary">Admin</Badge>;
       case "tl":
-        return <Badge>Team Lead</Badge>;
+        return <Badge>TL · Team Lead</Badge>;
       case "bl":
-        return <Badge variant="secondary">Business Lead</Badge>;
+        return <Badge variant="secondary">BL</Badge>;
       case "dm":
-        return <Badge variant="outline">Design Manager</Badge>;
+        return <Badge variant="outline">DM</Badge>;
       default:
-        return <Badge variant="outline">Designer</Badge>;
+        return <Badge variant="outline">User</Badge>;
     }
   };
 
@@ -344,10 +328,10 @@ export default function UserManagement() {
                   <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="super_admin">Super Admin</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="user">Designer</SelectItem>
-                  <SelectItem value="tl">Team Lead</SelectItem>
-                  <SelectItem value="bl">Business Lead</SelectItem>
-                  <SelectItem value="dm">Design Manager</SelectItem>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="tl">TL · Team Lead</SelectItem>
+                  <SelectItem value="bl">BL</SelectItem>
+                  <SelectItem value="dm">DM</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -488,11 +472,11 @@ export default function UserManagement() {
                   {currentUser?.role === "super_admin" && (
                     <SelectItem value="super_admin">Super Admin</SelectItem>
                   )}
-                   <SelectItem value="admin">Admin</SelectItem>
-                   <SelectItem value="user">Designer</SelectItem>
-                   <SelectItem value="tl">Team Lead</SelectItem>
-                   <SelectItem value="bl">Business Lead</SelectItem>
-                   <SelectItem value="dm">Design Manager</SelectItem>
+                  <SelectItem value="admin">Admin (Team Manager)</SelectItem>
+                  <SelectItem value="user">User (Team Member)</SelectItem>
+                  <SelectItem value="tl">TL (Team Lead)</SelectItem>
+                  <SelectItem value="bl">BL</SelectItem>
+                  <SelectItem value="dm">DM</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -529,7 +513,7 @@ export default function UserManagement() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                   Designers can only see their own projects. The manager can see all team projects.
+                  Team members can only see their own projects. The manager can see all team projects.
                 </p>
               </div>
             )}
@@ -643,11 +627,11 @@ export default function UserManagement() {
                   {currentUser?.role === "super_admin" && (
                     <SelectItem value="super_admin">Super Admin</SelectItem>
                   )}
-                   <SelectItem value="admin">Admin</SelectItem>
-                   <SelectItem value="user">Designer</SelectItem>
-                   <SelectItem value="tl">Team Lead</SelectItem>
-                   <SelectItem value="bl">Business Lead</SelectItem>
-                   <SelectItem value="dm">Design Manager</SelectItem>
+                  <SelectItem value="admin">Admin (Team Manager)</SelectItem>
+                  <SelectItem value="user">User (Team Member)</SelectItem>
+                  <SelectItem value="tl">TL (Team Lead)</SelectItem>
+                  <SelectItem value="bl">BL</SelectItem>
+                  <SelectItem value="dm">DM</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -684,7 +668,7 @@ export default function UserManagement() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                   Designers can only see their own projects. The manager can see all team projects.
+                  Team members can only see their own projects. The manager can see all team projects.
                 </p>
               </div>
             )}

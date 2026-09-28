@@ -1,0 +1,19 @@
+CONTEXT: We're building a new "Furniture" Service Type, available across all variants (Xpress, Xpand, Xclusive), reading from Google Sheet tab GID 1293380484. This prompt covers only the STANDARD FURNITURE flow: Project Variant → Service Type (Furniture) → Brand → Type (Standard) → Applicable Area → Category → Sub Category → Finish Type → Finish Material → Description (auto) → Dimension (auto) → Quantity → Unit (auto) → Product Image (auto) → Price (auto, GST inclusive).
+
+OBJECTIVE: Build the Standard Furniture flow exactly as follows:
+1. Add "Furniture" as a new Service Type alongside Woodwork, Accessories, Stone, Handles.
+2. Brand selection mapped from Column C of the Furniture tab (GID 1293380484).
+3. Type selection: Standard Furniture or Custom Furniture (this prompt only builds Standard — Custom comes in a separate session).
+4. If Standard is selected: Applicable Area (Living Room, Dining Room, Bedroom, Outdoor, Other) → Category (dynamically filtered, e.g., Living Room → Sofa, Side Table, Centre Table, TV Unit, Armchair, Recliner) → Sub Category (dynamically filtered, e.g., Sofa → 3 Seater, 2 Seater, 1 Seater, Recliner, L-Shaped) → Finish Type (Standard Finish for this flow) → Finish Material (Plywood, Solid Wood, Wood, Other).
+5. Description auto-populates based on the full chain: Brand + Type + Applicable Area + Category + Sub Category + Finish Type + Finish Material. No manual typing.
+6. Dimension auto-populates from the predefined standard dimension mapped to that item (e.g., 2ft, 5ft) — not manually editable unless explicitly configured otherwise.
+7. Quantity is manual numeric entry.
+8. Unit auto-populates from the Furniture Master mapping (Nos, Sq.ft, or other mapped units) — not manually selectable.
+9. Product Image auto-populates from the Furniture Master.
+10. Price auto-populates from Furniture Master Pricing, GST-inclusive, following the existing Accessories pricing structure.
+
+SCOPE: Build only the Standard Furniture path in this session. Do not build Custom Furniture yet — that's a separate prompt. Do not modify Woodwork, Accessories, Stone, or Handles.
+
+CONSTRAINTS: The system should be built so Admin can add/edit/deactivate Brand, Category, Sub Category, Finish Type, and Finish Material values from the Furniture master tab in the future without needing a code change each time — confirm this admin-flexibility approach with me before building.
+
+DONE WHEN: I can go through the full Standard Furniture cascading flow, description/dimension/unit/image/price all auto-populate correctly with no manual entry (except Quantity), and it adds correctly to a quote with GST-inclusive pricing shown in Dashboard, PDF, and Quotation Link.

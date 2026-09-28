@@ -57,7 +57,9 @@ export default function AppliancesLineItemWizard({
   });
 
   const available = useMemo(
-    () => catalog.filter((item) => item.isActive !== false && (item.sellingPrice || item.rate || 0) > 0 && supportsVariant(item.projectType, projectVariant)),
+    // Appliances Master has no Active-column workflow. Older synced versions can carry
+    // a stale false value here, which must not hide otherwise valid products and brands.
+    () => catalog.filter((item) => (item.sellingPrice || item.rate || 0) > 0 && supportsVariant(item.projectType, projectVariant)),
     [catalog, projectVariant],
   );
   const byBrand = available.filter((item) => item.brand === brand);

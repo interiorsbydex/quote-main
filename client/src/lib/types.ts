@@ -118,6 +118,7 @@ export interface Project {
   status: "Draft" | "Generated";
   markup: number | null;
   discount: number | null;
+  createdByName?: string | null;
   shareToken?: string | null; // For shareable client portal links
   shareEnabled?: boolean; // Toggle to enable/disable sharing
   createdAt: Date;
@@ -197,7 +198,7 @@ export interface QuotationSummary {
   grandTotal: number;
 }
 
-// Administrative roles are super_admin/admin; assignment roles are tl, bl, and dm.
+// User role hierarchy: super_admin > admin (team manager) > user (team member)
 export type UserRole = "super_admin" | "admin" | "user" | "tl" | "bl" | "dm";
 
 export interface User {
