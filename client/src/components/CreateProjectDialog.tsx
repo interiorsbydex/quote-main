@@ -17,7 +17,7 @@ export interface CreateProjectDialogProps {
   onSubmit: (data: ProjectFormData) => void;
   projects?: Project[];
   /** Initial values applied when the dialog opens, e.g. prefilled from a CRM deep link. */
-  initialValues?: Partial<Pick<ProjectFormData, "clientName" | "pid" | "projectType">>;
+  initialValues?: Partial<ProjectFormData>;
 }
 
 export type { DexStyle };
@@ -29,6 +29,12 @@ export interface ProjectFormData {
   projectType: "Residential" | "Commercial" | "Others";
   category: DexStyle;
   multiStyleEnabled: boolean;
+  leadId?: string;
+  phone?: string;
+  email?: string;
+  scope?: string;
+  location?: string;
+  estimatedValue?: string;
 }
 
 interface FormErrors {
@@ -58,6 +64,12 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
         clientName: initialValues.clientName ?? prev.clientName,
         pid: initialValues.pid ?? prev.pid,
         projectType: initialValues.projectType ?? "Residential",
+        leadId: initialValues.leadId,
+        phone: initialValues.phone,
+        email: initialValues.email,
+        scope: initialValues.scope,
+        location: initialValues.location,
+        estimatedValue: initialValues.estimatedValue,
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,6 +322,20 @@ export default function CreateProjectDialog({ open, onOpenChange, onSubmit, init
                 </Select>
               </div>
             </div>
+
+            {(initialValues?.leadId || initialValues?.phone || initialValues?.email || initialValues?.scope || initialValues?.location || initialValues?.estimatedValue) && (
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-2" data-testid="crm-prefill-details">
+                <p className="text-sm font-medium">CRM details</p>
+                <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm text-muted-foreground md:grid-cols-2">
+                  {initialValues.leadId && <p><span className="font-medium text-foreground">Lead ID:</span> {initialValues.leadId}</p>}
+                  {initialValues.phone && <p><span className="font-medium text-foreground">Phone:</span> {initialValues.phone}</p>}
+                  {initialValues.email && <p><span className="font-medium text-foreground">Email:</span> {initialValues.email}</p>}
+                  {initialValues.scope && <p><span className="font-medium text-foreground">Scope:</span> {initialValues.scope}</p>}
+                  {initialValues.location && <p><span className="font-medium text-foreground">Location:</span> {initialValues.location}</p>}
+                  {initialValues.estimatedValue && <p><span className="font-medium text-foreground">Estimated value:</span> {initialValues.estimatedValue}</p>}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">

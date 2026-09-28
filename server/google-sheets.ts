@@ -417,11 +417,9 @@ async function getProjectExceptionItems(projectId: string): Promise<CatalogItem[
            COALESCE(e.granted_rate, ci.rate)                   AS rate,
            COALESCE(e.granted_selling_price, ci.selling_price) AS selling_price
     FROM project_catalog_exceptions e
-    JOIN LATERAL (
-      SELECT * FROM catalog_items
-      WHERE pricing_version_id = e.source_version_id AND item_code = e.item_code
-      LIMIT 1
-    ) ci ON TRUE
+    JOIN catalog_items ci
+      ON ci.pricing_version_id = e.source_version_id
+     AND ci.item_code = e.item_code
     WHERE e.project_id = ${projectId}
   `);
 

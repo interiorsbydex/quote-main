@@ -24,7 +24,9 @@ pre-existing rows are the only failures.
 
 1. **Scientific notation.** These money columns are `real`. `psql` exports some values as
    `1.365e+06` while the Node driver returns `1365000`. A string comparison flags that as
-   a change. Compare numerically.
+   a change. Compare numerically. For aggregate checks, cast each `real` operand to
+   `double precision` before `SUM()`; casting only the completed sum can preserve
+   low-precision accumulation and create a false mismatch with item-by-item API totals.
 2. **A guard that never fires.** A script that writes to production by way of an
    overridden `DATABASE_URL` fails silently in both directions — hitting production when
    you meant to rehearse, and hitting development while believing you migrated production,

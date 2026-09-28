@@ -1,0 +1,94 @@
+You are performing a read-only integration audit. Do not edit code, install packages, change environment variables, change data, deploy, or create test quotes.
+
+A separate CRM needs to connect reliably to this DynamicQuoteBuilder application. I need a factual report based only on the current source code and any non-mutating runtime inspection you can perform.
+
+The CRM currently opens this application using URL query parameters:
+
+- leadId — CRM lead reference, such as X0031
+- pid — Quote Builder project/PID reference, when known
+- clientName
+- phone
+- email
+- projectType
+- scope
+- location
+- estimatedValue
+
+The CRM expects the Quote Builder to notify it after a quote is created or updated. The intended callback contract is:
+
+POST {CRM_PRODUCTION_BASE_URL}/api/quotes/callback
+
+Headers:
+- x-quote-builder-secret: shared secret
+
+JSON body:
+{
+  "leadId": "X0031",
+  "amount": 0,
+  "discountPct": 0,
+  "quoteRef": "the Quote Builder's stable project or quote identifier"
+}
+
+Do not assume that this contract is currently implemented. Verify it against the actual source.
+
+Return a concise but complete report in exactly these sections:
+
+## 1. Query-parameter intake
+- State whether the app reads URL parameters on initial load.
+- For every supported parameter, give the exact parameter name, destination field, and source file/path.
+- State whether leadId, pid, and clientName are currently used.
+- State whether a matching pid opens an existing project automatically, or whether the app always opens the new-project flow.
+- State whether the PID can be edited after creation.
+
+## 2. Quote/project lifecycle
+- Identify the exact screen/action that creates a project.
+- Identify the exact screen/action that saves, generates, finalizes, exports, or otherwise completes a quote.
+- State the project/quote model fields that can serve as a stable quoteRef.
+- State whether one project can contain multiple quotes and how versions are identified.
+
+## 3. CRM callback status
+- Search the full source for:
+  - /api/quotes/callback
+  - quote callback
+  - webhook
+  - fetch(
+  - axios
+  - x-quote-builder-secret
+  - CRM URL / API base URL
+- State whether a CRM callback exists today.
+- If it exists, provide the exact request URL source, HTTP method, headers, body fields, and the lifecycle event that triggers it.
+- If it does not exist, say exactly where the new callback should be triggered.
+- List only environment-variable NAMES required for a callback. Never reveal values or secrets.
+
+## 4. Authentication and representative scope
+- Describe the current login/session/authentication mechanism.
+- Identify every place where project or quote lists are loaded.
+- State whether list views are currently filtered by logged-in representative/user.
+- State whether direct URL/project access is also checked against the logged-in user.
+- Identify the existing user, representative, owner, assigned-user, project, and PID fields available for enforcing access.
+- State factually whether the requirement “a representative can open only their assigned PID/quotes” is already met, partly met, or absent.
+
+## 5. Data and deployment
+- Identify the database/storage system used by this Repl.
+- List relevant schema/table/model names for users, projects, quotes, and assignments.
+- State how production configuration is supplied and name the relevant non-secret and secret environment-variable keys without showing values.
+- State whether production has a public API route suitable for receiving or sending the CRM callback.
+
+## 6. Exact implementation gaps
+Give a numbered list of only the confirmed gaps required to make this work:
+1. CRM opens a new quote with prefilled CRM details.
+2. CRM opens an existing Quote Builder project by PID/reference.
+3. Quote creation/update is sent back to CRM.
+4. A representative can access only assigned PIDs/quotes.
+5. Callback requests are authenticated and retries cannot create duplicate CRM quotes.
+
+For every gap, include the relevant source file paths and function/component names.
+
+## 7. Safe implementation plan
+Give a short ordered plan for changes in DynamicQuoteBuilder only. Do not make the changes yet.
+
+Important rules:
+- Do not claim behavior without naming the source file and function/component that proves it.
+- Do not expose passwords, API keys, tokens, database URLs, or secret values.
+- Do not change anything.
+- Do not give generic advice; report the actual current implementation.

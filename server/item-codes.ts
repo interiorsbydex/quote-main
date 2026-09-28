@@ -78,6 +78,13 @@ export interface ItemCodeOptions {
 }
 
 /**
+ * Layouts whose item codes are derived from row position during catalog sync and are
+ * therefore never stored in a sheet column. The generator must skip these tabs so it
+ * does not misread price/MRP cells that happen to occupy column N as malformed codes.
+ */
+const ROW_DERIVED_CODE_LAYOUTS = new Set(["furniture", "appliances"]);
+
+/**
  * Builds the write plan for every enabled tab without modifying anything.
  */
 export async function previewItemCodes(
@@ -94,6 +101,11 @@ export async function previewItemCodes(
   const plans: TabCodePlan[] = [];
 
   for (const tab of tabs) {
+    // Furniture and appliances derive codes from row position during catalog sync,
+    // not from a sheet column. Skipping them prevents MRP/price cells in column N
+    // from being misread as malformed or duplicate item codes.
+    if (ROW_DERIVED_CODE_LAYOUTS.has(tab.layout)) continue;
+
     const props = byGid.get(tab.sheetTabId);
     if (!props) {
       plans.push({
@@ -221,6 +233,10 @@ export async function generateItemCodes(
   let tabsWritten = 0;
 
   for (const tab of tabs) {
+    // Same exclusion as previewItemCodes: furniture and appliances use row-derived
+    // codes assigned during catalog sync, not a sheet column.
+    if (ROW_DERIVED_CODE_LAYOUTS.has(tab.layout)) continue;
+
     const props = byGid.get(tab.sheetTabId);
     if (!props) continue;
     const liveTitle: string = props.title;

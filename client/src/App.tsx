@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -25,6 +26,7 @@ import NotFound from "@/pages/not-found";
 import PricingVersions from "@/pages/PricingVersions";
 import Offers from "@/pages/Offers";
 import MilestoneSettings from "@/pages/MilestoneSettings";
+import { saveLoginReturnPath } from "@/lib/auth-redirect";
 
 function DynamicBrandingProvider({ children }: { children: React.ReactNode }) {
   useDynamicBranding();
@@ -33,6 +35,12 @@ function DynamicBrandingProvider({ children }: { children: React.ReactNode }) {
 
 function Router() {
   const { user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      saveLoginReturnPath();
+    }
+  }, [isLoading, user]);
 
   return (
     <Switch>

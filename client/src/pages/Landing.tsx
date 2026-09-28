@@ -9,6 +9,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CompanySettings } from "@shared/schema";
+import { consumeLoginReturnPath } from "@/lib/auth-redirect";
 
 export default function Landing() {
   const [username, setUsername] = useState("");
@@ -29,7 +30,7 @@ export default function Landing() {
       return response;
     },
     onSuccess: () => {
-      window.location.href = "/";
+      window.location.href = consumeLoginReturnPath();
     },
     onError: (error: any) => {
       toast({

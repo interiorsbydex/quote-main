@@ -1,0 +1,66 @@
+Implement the DynamicQuoteBuilder side of the CRM integration. Make the changes, run the project’s relevant checks, and report the exact files changed plus verification results. Do not reveal or print secret values.
+
+The CRM production callback URL is:
+
+https://fyx.interiorsbydex.com/api/quotes/callback
+
+Current integration facts:
+
+- CRM opens Quote Builder with URL query parameters:
+  leadId, pid, clientName, phone, email, projectType, scope, location, estimatedValue
+- DynamicQuoteBuilder already reads clientName, pid, projectType, scope, location, estimatedValue, and leadId.
+- It does not currently read phone or email.
+- It reads several values but does not persist leadId, scope, location, or estimatedValue when it creates a project.
+- A DynamicQuoteBuilder project has:
+  - id: immutable UUID
+  - pid: business-facing PID
+- Treat these as separate identifiers:
+  - projectId = DynamicQuoteBuilder project UUID
+  - pid = business PID
+- Do not ever treat a project UUID as a PID.
+
+Implement these changes:
+
+1. CRM handoff persistence
+   - Read and retain all incoming values:
+     leadId, pid, clientName, phone, email, projectType, scope, location, estimatedValue.
+   - Persist leadId, phone, email, scope, location, and estimatedValue on the DynamicQuoteBuilder project record.
+   - Update the create-project input validation and create-project request so these values are not silently dropped.
+   - Show the known CRM values in the create-project form where the current product design supports those fields.
+   - Keep PID locked when the CRM supplied a PID.
+
+2. Existing-project deep links
+   - Add support for ?projectId=<DynamicQuoteBuilder project UUID>.
+   - When a valid projectId is supplied, open that exact project only after applying the existing server-side access check.
+   - Keep existing pid behavior for a business PID. If a PID has multiple revision projects, retain the folder/list view rather than choosing one arbitrarily.
+   - Do not allow an unauthorised direct URL to bypass existing project permissions.
+
+3. CRM callback after quote generation
+   - Add a server-side callback after a project successfully transitions from Draft to Generated in the existing finalize route.
+   - Use POST https://fyx.interiorsbydex.com/api/quotes/callback.
+   - Send Content-Type: application/json.
+   - Read the callback secret from CRM_CALLBACK_SECRET and send it as x-quote-builder-secret.
+   - Send exactly this payload shape:
+     {
+       "leadId": "<persisted CRM lead ID>",
+       "amount": <actual final quote total from the existing project calculation>,
+       "discountPct": <actual effective discount percentage, or 0>,
+       "quoteRef": "<project.id UUID>"
+     }
+   - Do not guess the amount or discount fields: derive them from the existing finalized quotation calculation.
+   - Do not fail a successful quote-generation response merely because the CRM callback fails.
+   - Persist callback delivery status/error details so a failed callback can be retried and a successful callback is not repeatedly sent.
+
+4. Configuration
+   - Add CRM_PRODUCTION_BASE_URL and CRM_CALLBACK_SECRET to the documented environment-variable requirements.
+   - Use CRM_PRODUCTION_BASE_URL in code instead of hardcoding the URL, but set the documented production value to https://fyx.interiorsbydex.com through normal Replit configuration.
+   - Do not place secrets in source code, logs, or chat output.
+
+5. Verification
+   - Run the project’s build/type checks.
+   - Verify that all CRM query parameters populate a new project.
+   - Verify a valid projectId deep link opens the exact authorised project.
+   - Verify an unauthorised direct project request remains blocked.
+   - Do not create or finalize a production test quote until the shared callback secret has been configured in both applications.
+
+Do not implement a new CRM-representative-to-Quote-Builder-user mapping in this change. Report the existing user/project ownership fields that would be used for that next step.

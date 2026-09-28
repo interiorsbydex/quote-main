@@ -184,6 +184,7 @@ rise.
 
 -   **Google Sheets API v4**: Used for catalog data synchronization. Authenticates via Replit Connectors (OAuth2). It syncs 8 DeX catalog sheets, handling metadata-driven sheet discovery by stable GID and a hybrid persistence strategy (Sheets → PostgreSQL → in-memory cache). Includes intelligent multi-select parsing and data quality tracking.
 -   **Replit Infrastructure**: Leverages Replit Connectors for Google Sheets OAuth and Replit's Neon integration for PostgreSQL database hosting.
+-   **CRM callback configuration**: Set `CRM_PRODUCTION_BASE_URL` to the CRM base URL (production: `https://fyx.interiorsbydex.com`) and store the shared `CRM_CALLBACK_SECRET` as a Replit Secret. The application posts generated CRM-linked quotations to `/api/quotes/callback`; the secret must never be placed in source code.
 -   **Third-Party Libraries**:
     -   `@radix-ui/*`: UI primitives for accessibility.
     -   `Tailwind CSS`: For styling and custom design tokens.

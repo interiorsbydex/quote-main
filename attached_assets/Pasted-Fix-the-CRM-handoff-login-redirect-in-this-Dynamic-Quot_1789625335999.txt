@@ -1,0 +1,62 @@
+Fix the CRM handoff login redirect in this Dynamic Quote Builder app.
+
+Context
+- The CRM opens Quote Builder with a URL like:
+  https://proposals.interiorsbydex.com/?leadId=X8917&pid=P-2026-0005&clientName=Test%20Possession%20Block&phone=9123456799
+- When the Quote Builder user is already logged in, this URL correctly opens the “Create New Project” dialog prefilled with:
+  - CRM lead ID
+  - PID
+  - client name
+  - phone
+- When the user is logged out, Quote Builder shows the login page. After successful login, it currently redirects to `/` and discards the original CRM handoff URL and query parameters. That is the bug.
+
+Required behavior
+1. When an unauthenticated user visits any URL, especially a CRM handoff URL with query parameters:
+   - preserve the complete original in-app destination, including pathname, query string, and hash;
+   - redirect the user to the login page.
+2. After successful login:
+   - redirect the user back to that exact original in-app destination;
+   - do not always redirect to `/`.
+3. The solution must work on browser refresh and should not rely solely on transient React navigation state.
+4. Prevent open redirects:
+   - only restore a local/same-origin path such as `/`, `/folder/...`, `/project/...`, plus its search/hash;
+   - never redirect to an arbitrary external URL supplied through a query parameter.
+5. Do not change the CRM handoff field contract or callback contract:
+   - `leadId` remains the CRM lead reference.
+   - `pid` remains the human-readable business PID.
+   - `projectId` is the immutable Quote Builder UUID used only when reopening an existing Quote Builder project.
+   - Do not expose, hardcode, log, or modify callback secrets.
+
+Implementation guidance
+- Inspect the actual auth guard, login page/component, and routing setup before editing.
+- Prefer one of these safe patterns:
+  A. Store the intended local path in sessionStorage before navigating to login, then consume and clear it after successful authentication.
+  B. Use a `returnTo` query parameter on the internal login route, but validate that it is a same-origin local path before using it.
+- Preserve pathname + `location.search` + `location.hash`.
+- Avoid redirect loops if the saved destination is `/login`.
+- Clear the saved redirect after it has been consumed so it cannot affect later unrelated logins.
+- Existing authenticated behavior must remain unchanged.
+
+Verification required
+1. Log out completely or start with a fresh browser session.
+2. Open this exact test URL:
+   https://proposals.interiorsbydex.com/?leadId=X8917&pid=P-2026-0005&clientName=Test%20Possession%20Block&phone=9123456799
+3. Confirm the login page appears.
+4. Sign in with a disposable test account.
+5. Confirm the browser returns to the same URL with all four query parameters still present.
+6. Confirm the “Create New Project” dialog opens automatically and is prefilled with:
+   - Client name: Test Possession Block
+   - PID: P-2026-0005
+   - Lead ID: X8917
+   - Phone: 9123456799
+7. Confirm a normal direct login, with no stored return destination, still lands on the regular dashboard/root page.
+8. Run the project’s build/typecheck and report the result.
+
+At the end, give me:
+- the exact files changed;
+- a concise explanation of the redirect approach used;
+- build/typecheck output;
+- the manual/browser verification result;
+- any deployment action needed for the fix to reach https://proposals.interiorsbydex.com.
+
+Do not make unrelated refactors.

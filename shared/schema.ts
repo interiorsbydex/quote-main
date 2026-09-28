@@ -80,11 +80,13 @@ export const projects = pgTable("projects", {
   clientName: text("client_name").notNull(),
   pid: text("pid"), // Project ID for easy reference/search
   // CRM deep-link metadata: captured from Tele-CRM Tool query params when a project
-  // is created via a CRM link. Not shown in the create form; kept for later use.
+  // is created via a CRM link.
   scope: text("scope"),
   location: text("location"),
   estimatedValue: text("estimated_value"),
   leadId: text("lead_id"),
+  phone: text("phone"),
+  email: text("email"),
   projectType: text("project_type").notNull(), // 'Residential', 'Commercial', 'Others'
   defaultCategory: text("default_category").notNull(), // 'Economy', 'Lite Premium', 'Premium', 'Luxury'
   multiStyleEnabled: boolean("multi_style_enabled").notNull().default(false),
@@ -117,6 +119,25 @@ export const insertProjectSchema = createInsertSchema(projects).omit({
 
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Project = typeof projects.$inferSelect;
+
+// Delivery record for the outbound CRM quote callback. One project has one callback
+// record, which makes retries explicit and prevents a delivered quote from being sent
+// again by a later retry request.
+export const crmQuoteCallbacks = pgTable("crm_quote_callbacks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().unique().references(() => projects.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"), // 'pending' | 'delivered' | 'failed'
+  attempts: integer("attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  deliveredAt: timestamp("delivered_at"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("crm_quote_callbacks_status_idx").on(table.status),
+]);
+
+export type CrmQuoteCallback = typeof crmQuoteCallbacks.$inferSelect;
 
 // Configurable quote-level offers. They are intentionally separate from catalog
 // line items and the existing woodwork discount so GST/taxable values stay intact.

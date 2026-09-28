@@ -15,3 +15,4 @@
 - [Blank attribute defaults](blank-attribute-defaults.md) — a blank room type means "any room"; defaulting it on the read path silently hides half the catalog from the other room.
 - [Version pinning hides new items](version-pinning-vs-new-items.md) — a pinned record never sees items added later; it looks like a permissions bug. Ignore the stamp on reads in single-catalog mode.
 - [Stale state in dialog-confirm mutations](stale-state-dialog-mutations.md) — a mutationFn reading target state at call time can silently get the reset value when a Radix AlertDialogAction's auto-close races the mutation; pass the id as a mutate() argument instead.
+- [Catalog codes with room variants](catalog-code-room-variants.md) — one item code may map to separate Dry and Wet rows; project exceptions must preserve every variant, never select an arbitrary row.

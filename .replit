@@ -45,4 +45,7 @@ integrations = ["javascript_log_in_with_replit:1.0.0", "javascript_database:1.0.
 [userenv]
 
 [userenv.shared]
-GOOGLE_SHEETS_ID = "1WEzVbYH2jHiznh902kCdc7IvhRbL3ukYEdwGecrg0Fw"
+GOOGLE_SHEETS_ID = "1CaGMs-YDCN-6r-spQm72GHFcFEg6z3oQ7S2ArHQDpm8"
+
+[userenv.production]
+CRM_PRODUCTION_BASE_URL = "https://fyx.interiorsbydex.com"

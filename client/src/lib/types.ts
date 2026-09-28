@@ -112,6 +112,8 @@ export interface Project {
   location?: string | null; // Captured from CRM deep link, no dedicated UI field yet
   estimatedValue?: string | null; // Captured from CRM deep link, no dedicated UI field yet
   leadId?: string | null; // Captured from CRM deep link, no dedicated UI field yet
+  phone?: string | null; // Captured from CRM deep link
+  email?: string | null; // Captured from CRM deep link
   projectType: "Residential" | "Commercial" | "Others";
   defaultCategory: DexCategory | string; // string for backward compatibility
   multiStyleEnabled: boolean;

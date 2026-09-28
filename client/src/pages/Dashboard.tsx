@@ -41,6 +41,8 @@ interface CrmPrefill {
   location?: string;
   estimatedValue?: string;
   leadId?: string;
+  phone?: string;
+  email?: string;
 }
 
 interface ProjectPerson {
@@ -77,15 +79,14 @@ export default function Dashboard() {
     enabled: projects.length > 0,
   });
 
-  // CRM deep link: the Tele-CRM Tool opens this app with query params. If `pid`
-  // matches an existing project, go straight there; otherwise prefill the
-  // "Create New Project" dialog. Runs once, after the project list has loaded.
+  // CRM deep link: a project UUID opens its exact accessible project. A business PID
+  // opens its folder because it may represent multiple quotation revisions.
   const handledCrmLinkRef = useRef(false);
   useEffect(() => {
     if (handledCrmLinkRef.current || isLoading) return;
 
     const params = new URLSearchParams(window.location.search);
-    const hasAnyParam = ["clientName", "pid", "projectType", "scope", "location", "estimatedValue", "leadId"]
+    const hasAnyParam = ["projectId", "clientName", "pid", "phone", "email", "projectType", "scope", "location", "estimatedValue", "leadId"]
       .some((key) => params.has(key));
     if (!hasAnyParam) {
       handledCrmLinkRef.current = true;
@@ -94,7 +95,9 @@ export default function Dashboard() {
 
     handledCrmLinkRef.current = true;
 
+    const projectId = params.get("projectId")?.trim();
     const pid = params.get("pid") || undefined;
+    const matchingProjectId = projectId ? projects.find((project) => project.id === projectId) : undefined;
     const matchingProject = pid
       ? projects.find((p) => p.pid?.trim().toLowerCase() === pid.trim().toLowerCase())
       : undefined;
@@ -102,6 +105,20 @@ export default function Dashboard() {
     // Clear the consumed query params so a refresh doesn't repeat this.
     const cleanUrl = window.location.pathname + window.location.hash;
     window.history.replaceState(null, "", cleanUrl);
+
+    if (matchingProjectId) {
+      setLocation(`/project/${matchingProjectId.id}`);
+      return;
+    }
+
+    if (projectId) {
+      toast({
+        title: "Project unavailable",
+        description: "This project could not be found or you do not have access to it.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     if (matchingProject) {
       setLocation(`/folder/${encodeURIComponent(matchingProject.pid!.trim())}`);
@@ -119,6 +136,8 @@ export default function Dashboard() {
       location: params.get("location") || undefined,
       estimatedValue: params.get("estimatedValue") || undefined,
       leadId: params.get("leadId") || undefined,
+      phone: params.get("phone") || undefined,
+      email: params.get("email") || undefined,
     });
     setCreateDialogOpen(true);
   }, [isLoading, projects, setLocation]);
@@ -143,12 +162,12 @@ export default function Dashboard() {
         projectType: data.projectType,
         defaultCategory: data.category,
         multiStyleEnabled: data.multiStyleEnabled,
-        // Carried through from a CRM deep link, if this project was created from one.
-        // These have no dedicated dialog fields yet.
-        scope: crmPrefill?.scope,
-        location: crmPrefill?.location,
-        estimatedValue: crmPrefill?.estimatedValue,
-        leadId: crmPrefill?.leadId,
+        leadId: data.leadId,
+        phone: data.phone,
+        email: data.email,
+        scope: data.scope,
+        location: data.location,
+        estimatedValue: data.estimatedValue,
       });
       return res.json();
     },

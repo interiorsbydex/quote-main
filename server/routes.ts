@@ -26,7 +26,7 @@ import { addNewProduct, getNewProductOptions } from "./new-products";
 import { testGQSheet } from "./quotation-comparison";
 import { createGQ1Project } from "./create-gq1-project";
 import { db, pool } from "./db";
-import { catalogItems, catalogSyncLogs, projectCredits, milestones, milestoneStages, creditTransactions, creditRequests, walletFundingEntries, projects, users, offers, projectOffers } from "@shared/schema";
+import { catalogItems, catalogSyncLogs, projectCredits, milestones, milestoneStages, creditTransactions, creditRequests, walletFundingEntries, projects, users, offers, projectOffers, crmQuoteCallbacks } from "@shared/schema";
 import { insertProjectSchema, insertRoomSchema, insertRoomSubcategorySchema, insertLineItemSchema, insertMilestoneSchema } from "@shared/schema";
 import { CREDIT_REQUEST_TYPES, CREDIT_CAPS, MILESTONE_TYPES, PAYMENT_TIERS, RETENTION_AMOUNT } from "@shared/schema";
 import { computeQuotationTotals, computePaymentSchedule, computeRoomSubtotalDisplay } from "@shared/calculations";
@@ -201,6 +201,117 @@ async function getOfferContext(projectId: string) {
   }
 
   return { project, woodworkValue, offers: visibleOffers, selectedOffers, isEligible };
+}
+
+const CRM_CALLBACK_PATH = "/api/quotes/callback";
+const CRM_CALLBACK_TIMEOUT_MS = 10_000;
+
+function callbackErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Unknown CRM callback error";
+  return message.slice(0, 1000);
+}
+
+/**
+ * Sends the CRM notification for a generated, CRM-linked quotation. Delivery state is
+ * persisted before and after the request so a failed notification can be retried and a
+ * delivered one is never sent again.
+ */
+async function deliverCrmQuoteCallback(projectId: string) {
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+  if (!project?.leadId) return null;
+
+  let [delivery] = await db
+    .select()
+    .from(crmQuoteCallbacks)
+    .where(eq(crmQuoteCallbacks.projectId, projectId))
+    .limit(1);
+
+  if (!delivery) {
+    await db.insert(crmQuoteCallbacks).values({ projectId }).onConflictDoNothing();
+    [delivery] = await db
+      .select()
+      .from(crmQuoteCallbacks)
+      .where(eq(crmQuoteCallbacks.projectId, projectId))
+      .limit(1);
+  }
+  if (!delivery || delivery.status === "delivered") return delivery ?? null;
+
+  const [attempt] = await db
+    .update(crmQuoteCallbacks)
+    .set({
+      status: "pending",
+      attempts: sql`${crmQuoteCallbacks.attempts} + 1`,
+      lastAttemptAt: new Date(),
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(crmQuoteCallbacks.projectId, projectId))
+    .returning();
+
+  const crmBaseUrl = process.env.CRM_PRODUCTION_BASE_URL?.replace(/\/+$/, "");
+  const callbackSecret = process.env.CRM_CALLBACK_SECRET;
+  if (!crmBaseUrl || !callbackSecret) {
+    const [failed] = await db
+      .update(crmQuoteCallbacks)
+      .set({
+        status: "failed",
+        lastError: "CRM callback configuration is incomplete.",
+        updatedAt: new Date(),
+      })
+      .where(eq(crmQuoteCallbacks.projectId, projectId))
+      .returning();
+    return failed;
+  }
+
+  try {
+    const [lineItems, appliedOffers] = await Promise.all([
+      storage.getLineItemsByProject(projectId),
+      db.select().from(projectOffers).where(eq(projectOffers.projectId, projectId)),
+    ]);
+    const totals = computeQuotationTotals(lineItems, project.markup || 0, project.discount || 0, appliedOffers);
+    const discountPct = totals.grandTotal > 0
+      ? ((totals.grandTotal - totals.finalPayable) / totals.grandTotal) * 100
+      : 0;
+    const response = await fetch(`${crmBaseUrl}${CRM_CALLBACK_PATH}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-quote-builder-secret": callbackSecret,
+      },
+      body: JSON.stringify({
+        leadId: project.leadId,
+        amount: totals.finalPayable,
+        discountPct,
+        quoteRef: project.id,
+      }),
+      signal: AbortSignal.timeout(CRM_CALLBACK_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`CRM callback returned HTTP ${response.status}`);
+
+    const [delivered] = await db
+      .update(crmQuoteCallbacks)
+      .set({
+        status: "delivered",
+        deliveredAt: new Date(),
+        lastError: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(crmQuoteCallbacks.projectId, projectId))
+      .returning();
+    return delivered;
+  } catch (error) {
+    const [failed] = await db
+      .update(crmQuoteCallbacks)
+      .set({
+        status: "failed",
+        lastError: callbackErrorMessage(error),
+        updatedAt: new Date(),
+      })
+      .where(eq(crmQuoteCallbacks.projectId, projectId))
+      .returning();
+    console.error(`CRM callback failed for project ${projectId}:`, callbackErrorMessage(error));
+    return failed;
+  }
 }
 
 async function ensureMilestoneStages() {
@@ -1394,12 +1505,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .set({ status: "Generated", updatedAt: new Date() })
             .where(eq(projects.id, req.params.id))
             .returning();
+          if (finalized.leadId) {
+            await tx.insert(crmQuoteCallbacks)
+              .values({ projectId: finalized.id })
+              .onConflictDoNothing();
+          }
           return finalized;
         });
+      // A CRM outage must not undo a successfully finalized quotation. The delivery
+      // record retains any error and can be retried through the protected endpoint.
+      if (updatedProject.leadId) await deliverCrmQuoteCallback(updatedProject.id);
       res.json(updatedProject);
     } catch (error: any) {
       console.error("Error finalizing project:", error);
       res.status(500).json({ error: error.message || "Failed to finalize project" });
+    }
+  });
+
+  app.get("/api/projects/:id/crm-callback", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const hasAccess = await canAccessProject(req.session.userId!, req.session.role || "user", req.params.id);
+      if (!hasAccess) return res.status(403).json({ error: "Access denied to this project" });
+
+      const [delivery] = await db
+        .select()
+        .from(crmQuoteCallbacks)
+        .where(eq(crmQuoteCallbacks.projectId, req.params.id))
+        .limit(1);
+      res.json(delivery ?? null);
+    } catch (error: any) {
+      console.error("Error fetching CRM callback status:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch CRM callback status" });
+    }
+  });
+
+  app.post("/api/projects/:id/crm-callback/retry", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const hasAccess = await canAccessProject(req.session.userId!, req.session.role || "user", req.params.id);
+      if (!hasAccess) return res.status(403).json({ error: "Access denied to this project" });
+
+      const project = await storage.getProject(req.params.id);
+      if (!project) return res.status(404).json({ error: "Project not found" });
+      if (project.status !== "Generated") {
+        return res.status(400).json({ error: "Generate the quotation before retrying its CRM callback" });
+      }
+      if (!project.leadId) return res.status(400).json({ error: "This quotation is not linked to a CRM lead" });
+
+      const delivery = await deliverCrmQuoteCallback(project.id);
+      res.json(delivery);
+    } catch (error: any) {
+      console.error("Error retrying CRM callback:", error);
+      res.status(500).json({ error: error.message || "Failed to retry CRM callback" });
     }
   });
 
